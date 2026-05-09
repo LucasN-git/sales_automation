@@ -31,27 +31,25 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center px-6">
       <div className="w-full max-w-md">
-        <header className="mb-12">
-          <h1 className="text-[40px] leading-[1.05] font-extrabold tracking-[-0.02em]">
+        <header className="mb-10">
+          <h1 className="text-display">
             Sales Intelligence<span style={{ color: "var(--color-gold)" }}>.</span>
           </h1>
-          <p className="mt-3 text-[15px] text-[var(--color-near-black)]/70">
+          <p className="mt-3 text-body text-[var(--color-near-black)]/65">
             ISP Power Systems, internes Tool. Login per Magic-Link.
           </p>
         </header>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-[13px] uppercase tracking-[0.06em] mb-2">
-              E-Mail
-            </label>
+            <label className="block text-meta mb-2">e-mail</label>
             <input
               type="email"
               required
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-transparent border-0 border-b border-[var(--color-hairline-light)] py-2 text-[18px] focus:outline-none focus:border-[var(--color-near-black)]"
+              className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
               placeholder="vertrieb@isp-power-systems.de"
               disabled={status === "sending" || status === "sent"}
             />
@@ -60,29 +58,27 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={status === "sending" || status === "sent" || !email}
-            className="inline-flex items-center gap-2 px-5 py-3 text-[15px] font-bold uppercase tracking-[0.04em] bg-[var(--color-near-black)] text-[var(--color-cream)] disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
           >
-            <span>{status === "sending" ? "Sende" : "Magic-Link senden"}</span>
+            <span>{status === "sending" ? "sende" : "magic-link senden"}</span>
             <GoldDot size={6} />
           </button>
 
           {status === "sent" && (
-            <p className="text-[15px] text-[var(--color-near-black)]/70">
-              Link versendet. Postfach prüfen.
+            <p className="text-body-sm text-[var(--color-near-black)]/65">
+              link versendet. postfach pruefen.
             </p>
           )}
           {status === "error" && (
-            <p className="text-[15px] text-[var(--color-near-black)]/70">
-              Fehler: {errorMsg}
+            <p className="text-body-sm text-[var(--color-near-black)]/65">
+              fehler: {errorMsg}
             </p>
           )}
         </form>
 
-        <div className="mt-16">
+        <div className="mt-14">
           <Hairline />
-          <p className="mt-4 text-[13px] text-[var(--color-near-black)]/50">
-            Zugang nur für freigegebene Adressen.
-          </p>
+          <p className="mt-4 text-meta">zugang nur fuer freigegebene adressen</p>
         </div>
       </div>
     </main>

@@ -44,9 +44,9 @@ export function NewShowForm() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 px-5 py-3 text-[15px] font-bold uppercase tracking-[0.04em] bg-[var(--color-near-black)] text-[var(--color-cream)]"
+        className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] transition-all duration-150 origin-center"
       >
-        <span>Neue Messe</span>
+        <span>neue messe</span>
         <GoldDot size={6} />
       </button>
     );
@@ -55,57 +55,57 @@ export function NewShowForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t border-b border-[var(--color-hairline-light)] py-8 grid grid-cols-1 md:grid-cols-12 gap-6"
+      className="border-t border-b border-[var(--border-color-soft)] py-8 grid grid-cols-1 md:grid-cols-12 gap-6"
     >
       <div className="md:col-span-5">
-        <label className="block text-[13px] uppercase tracking-[0.06em] mb-2">Messe-Name</label>
+        <label className="block text-meta mb-2">messe-name</label>
         <input
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="AUSA Annual Meeting"
-          className="w-full bg-transparent border-0 border-b border-[var(--color-hairline-light)] py-2 text-[18px] focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
       </div>
       <div className="md:col-span-5">
-        <label className="block text-[13px] uppercase tracking-[0.06em] mb-2">URL Aussteller-Liste</label>
+        <label className="block text-meta mb-2">url aussteller-liste</label>
         <input
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://meeting.ausa.org/exhibitors"
-          className="w-full bg-transparent border-0 border-b border-[var(--color-hairline-light)] py-2 text-[18px] focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
       </div>
       <div className="md:col-span-2">
-        <label className="block text-[13px] uppercase tracking-[0.06em] mb-2">Jahr</label>
+        <label className="block text-meta mb-2">jahr</label>
         <input
           type="number"
           min={2020}
           max={2030}
           value={year}
           onChange={(e) => setYear(e.target.value)}
-          className="w-full bg-transparent border-0 border-b border-[var(--color-hairline-light)] py-2 text-[18px] tabular-nums focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body tabular-nums focus:outline-none focus:border-[var(--color-near-black)]"
         />
       </div>
 
-      <div className="md:col-span-12 flex items-center gap-4">
+      <div className="md:col-span-12 flex items-center gap-4 flex-wrap">
         <button
           type="submit"
           disabled={pending || !name}
-          className="inline-flex items-center gap-2 px-5 py-3 text-[15px] font-bold uppercase tracking-[0.04em] bg-[var(--color-near-black)] text-[var(--color-cream)] disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
         >
-          <span>{pending ? "Starte" : "Crawl starten"}</span>
+          <span>{pending ? "starte" : "crawl starten"}</span>
           <GoldDot size={6} />
         </button>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="text-[13px] uppercase tracking-[0.06em] text-[var(--color-near-black)]/50 hover:text-[var(--color-near-black)]"
+          className="text-ui text-[var(--color-near-black)]/55 hover:text-[var(--color-gold)] transition-colors"
         >
-          Abbrechen
+          abbrechen
         </button>
-        {error && <p className="text-[15px] text-[var(--color-near-black)]/70">{error}</p>}
+        {error && <p className="text-body-sm text-[var(--color-near-black)]/70">{error}</p>}
       </div>
     </form>
   );

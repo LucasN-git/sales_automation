@@ -4,6 +4,7 @@
   --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "Roboto Mono", monospace;
 
+  /* Color palette */
   --color-cream: #FAFAF8;
   --color-near-black: #0A0A0A;
   --color-gold: #D4A843;
@@ -11,6 +12,25 @@
   --color-dark-fg: #FFFFFF;
   --color-hairline-light: rgba(10, 10, 10, 0.18);
   --color-hairline-dark: rgba(255, 255, 255, 0.22);
+
+  /* Borders — single source of truth for line-weight + tint */
+  --border-w: 1px;
+  --border-color-soft: rgba(10, 10, 10, 0.14);
+  --border-color: rgba(10, 10, 10, 0.32);
+  --border-color-strong: rgba(10, 10, 10, 0.85);
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Hover-Accent for interactive text */
+  --hover-accent: var(--color-gold);
 
   --radius-none: 0;
   --radius-sm: 0;
@@ -31,8 +51,36 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
+/* Typo scale — single source of truth for sizing hierarchy.
+   Use these utilities in JSX instead of ad-hoc `text-[NNpx]` classes
+   wherever possible. Brand-conformant: Helvetica stack, no Caps unless
+   it's a structural label (numerals, status pills). */
+.text-display     { font-size: 44px; line-height: 1.05; font-weight: 800; letter-spacing: -0.02em; }
+.text-title       { font-size: 22px; line-height: 1.25; font-weight: 700; letter-spacing: -0.005em; }
+.text-subtitle    { font-size: 16px; line-height: 1.4; font-weight: 600; }
+.text-body        { font-size: 14px; line-height: 1.55; }
+.text-body-sm     { font-size: 13px; line-height: 1.5; }
+.text-ui          { font-size: 13px; line-height: 1.4; font-weight: 500; }
+.text-ui-sm       { font-size: 12px; line-height: 1.4; font-weight: 500; }
+.text-meta        { font-size: 11px; line-height: 1.4; color: rgba(10, 10, 10, 0.45); }
+.text-meta-strong { font-size: 11px; line-height: 1.4; font-weight: 600; color: rgba(10, 10, 10, 0.7); }
+
 * {
   border-radius: 0 !important;
+  /* Ensure every Tailwind `border-*` utility renders as a solid line of
+     uniform thickness on all four sides. Without this, browsers can apply
+     subpixel rounding asymmetrically and Tailwind v4 sometimes ships utilities
+     without an explicit border-style. */
+  border-style: solid;
+}
+
+/* Box utility: 1 px hairline-box, all 4 sides equal. Use as drop-in alternative
+   to ad-hoc `border` classes when you want guaranteed symmetry. */
+.box-line {
+  border: var(--border-w) solid var(--border-color-soft);
+}
+.box-line-strong {
+  border: var(--border-w) solid var(--color-near-black);
 }
 
 ::selection {
@@ -50,7 +98,25 @@ input, button, textarea, select {
   color: inherit;
 }
 
-input:focus, button:focus, textarea:focus, select:focus {
+/* Mouse-clicks on buttons must NOT render a second frame on top of the
+   button's own border. Inputs and textareas still need a visible focus ring,
+   but for those a click and a keyboard-focus look the same anyway, so we
+   only show the ring on `:focus-visible` (keyboard) for buttons. */
+button:focus {
+  outline: none;
+}
+button:focus-visible {
   outline: 1px solid var(--color-near-black);
   outline-offset: 2px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 1px solid var(--color-near-black);
+  outline-offset: 2px;
+}
+
+/* Click feedback for every button: briefly scale up and flash the text gold.
+   No new frame, just movement + accent. Disabled buttons opt out. */
+button:not(:disabled):active {
+  transform: scale(1.06);
+  color: var(--color-gold);
 }

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { Hairline } from "@/components/brand/Hairline";
 import { GoldDot } from "@/components/brand/GoldDot";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { NewShowForm } from "./NewShowForm";
@@ -41,66 +40,70 @@ export default async function Dashboard() {
   return (
     <main className="min-h-screen px-8 py-12 max-w-6xl mx-auto">
       {anyActive && <AutoRefresh intervalMs={6000} />}
-      <header className="flex items-end justify-between mb-16">
+      <header className="flex items-end justify-between mb-14 gap-6 flex-wrap">
         <div>
-          <h1 className="text-[56px] leading-[1.02] font-extrabold tracking-[-0.02em]">
+          <h1 className="text-display">
             Sales Intelligence<span style={{ color: "var(--color-gold)" }}>.</span>
           </h1>
-          <p className="mt-4 text-[17px] text-[var(--color-near-black)]/70 max-w-xl">
+          <p className="mt-3 text-body text-[var(--color-near-black)]/65 max-w-xl">
             Messen scannen, Aussteller anreichern, ISP-Capability-Match pro Lead. Vorbereitete Pitches statt Kaltstart am Stand.
           </p>
         </div>
-        <form action="/auth/signout" method="post">
-          <button
-            type="submit"
-            className="text-[13px] uppercase tracking-[0.06em] text-[var(--color-near-black)]/50 hover:text-[var(--color-near-black)]"
+        <div className="flex items-center gap-5">
+          <Link
+            href="/settings"
+            className="text-ui text-[var(--color-near-black)]/55 hover:text-[var(--color-gold)] transition-colors"
           >
-            {user?.email ? `${user.email} · Logout` : "Logout"}
-          </button>
-        </form>
+            einstellungen
+          </Link>
+          <form action="/auth/signout" method="post">
+            <button
+              type="submit"
+              className="text-ui text-[var(--color-near-black)]/55 hover:text-[var(--color-gold)] transition-colors"
+            >
+              {user?.email ? `${user.email} · logout` : "logout"}
+            </button>
+          </form>
+        </div>
       </header>
 
       <NewShowForm />
 
-      <section className="mt-16">
-        <h2 className="text-[15px] uppercase tracking-[0.08em] mb-6 text-[var(--color-near-black)]/60">
-          Messen
-        </h2>
-        <Hairline />
+      <section className="mt-14">
+        <h2 className="text-meta-strong mb-4">messen</h2>
 
         {rows.length === 0 ? (
-          <div className="py-12 text-[17px] text-[var(--color-near-black)]/50">
-            Noch keine Messen erfasst.
+          <div className="py-10 text-body text-[var(--color-near-black)]/50 box-line px-5">
+            noch keine messen erfasst
           </div>
         ) : (
-          <ul>
+          <ul className="space-y-2">
             {rows.map((s) => (
               <li key={s.id}>
                 <Link
                   href={`/shows/${s.id}`}
-                  className="block py-5 hover:bg-[var(--color-near-black)]/[0.02]"
+                  className="block px-5 py-4 box-line hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
                 >
                   <div className="flex items-baseline justify-between gap-6">
                     <div className="flex items-baseline gap-4 min-w-0">
-                      <span className="text-[13px] tabular-nums text-[var(--color-near-black)]/40 shrink-0">
+                      <span className="text-meta tabular-nums shrink-0">
                         {new Date(s.created_at).toLocaleDateString("de-DE")}
                       </span>
-                      <span className="text-[20px] font-bold truncate">{s.name}</span>
+                      <span className="text-title truncate">{s.name}</span>
                       {s.year && (
-                        <span className="text-[15px] text-[var(--color-near-black)]/50">
+                        <span className="text-body text-[var(--color-near-black)]/50">
                           {s.year}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-6 shrink-0">
-                      <span className="text-[13px] uppercase tracking-[0.06em] text-[var(--color-near-black)]/60">
-                        {s.exhibitor_count} Aussteller
+                      <span className="text-meta-strong">
+                        {s.exhibitor_count} aussteller
                       </span>
                       <StatusBadge status={s.status} />
                     </div>
                   </div>
                 </Link>
-                <Hairline />
               </li>
             ))}
           </ul>
@@ -112,15 +115,16 @@ export default async function Dashboard() {
 
 function StatusBadge({ status }: { status: string }) {
   const labels: Record<string, string> = {
-    queued: "Wartet",
-    crawling: "Läuft",
-    ready: "Fertig",
-    partial: "Teilweise",
-    failed: "Fehler",
+    queued: "wartet",
+    crawling: "laeuft",
+    paused: "pausiert",
+    ready: "fertig",
+    partial: "teilweise",
+    failed: "fehler",
   };
   const isActive = status === "crawling";
   return (
-    <span className="inline-flex items-center gap-2 text-[13px] uppercase tracking-[0.06em]">
+    <span className="inline-flex items-center gap-2 text-meta-strong">
       {isActive && <GoldDot size={6} />}
       {labels[status] ?? status}
     </span>

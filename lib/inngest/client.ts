@@ -7,6 +7,15 @@ type Events = {
   "exhibitor.enrich.requested": {
     data: { exhibitorId: string; tradeShowId: string };
   };
+  "short-overview.bulk-requested": {
+    data: { tradeShowId: string };
+  };
+  "exhibitor.short.requested": {
+    data: { exhibitorId: string; tradeShowId: string };
+  };
+  "exhibitor.deep.requested": {
+    data: { exhibitorId: string; tradeShowId: string };
+  };
 };
 
 export const inngest = new Inngest({

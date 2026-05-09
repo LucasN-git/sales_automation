@@ -25,23 +25,27 @@ export type ExhibitorListing = z.infer<typeof ExhibitorListSchema>["exhibitors"]
 
 /**
  * Fetch the exhibitor list from a trade-show URL.
- * Tries structured extraction first; falls back to markdown if extraction yields nothing.
+ * Uses Firecrawl's own LLM-extraction with our Zod schema (no Claude call here).
  */
 export async function getExhibitorList(url: string): Promise<ExhibitorListing[]> {
-  const result: any = await app().scrape(url, {
-    formats: [
-      {
-        type: "json",
-        schema: z.toJSONSchema(ExhibitorListSchema),
-        prompt:
-          "Extract every exhibiting company on the page. For each, return name, official website (if linked) and booth/stand number if mentioned. Skip menu items, ads, and the trade-show organiser itself.",
-      },
-    ],
+  const result: any = await app().scrapeUrl(url, {
+    formats: ["json"],
+    jsonOptions: {
+      schema: ExhibitorListSchema,
+      prompt:
+        "Extract every exhibiting company on the page. For each, return the company name, the official company website if linked, and the booth or stand number if shown. Skip navigation menus, ads, and the trade-show organiser itself. If the page lazy-loads exhibitors, extract whatever is visible.",
+    },
     onlyMainContent: true,
-    waitFor: 1500,
+    waitFor: 3000,
   });
 
-  const json = (result as any).json ?? (result as any).data?.json;
+  if (!result?.success) {
+    throw new Error(
+      `Firecrawl scrape failed: ${result?.error ?? "unknown error"}`,
+    );
+  }
+
+  const json = result.json ?? result.data?.json;
   if (!json) return [];
 
   const parsed = ExhibitorListSchema.safeParse(json);
@@ -69,15 +73,15 @@ export async function getExhibitorList(url: string): Promise<ExhibitorListing[]>
  */
 export async function scrapeCompanySite(url: string): Promise<string> {
   try {
-    const result: any = await app().scrape(url, {
+    const result: any = await app().scrapeUrl(url, {
       formats: ["markdown"],
       onlyMainContent: true,
       waitFor: 1000,
     });
-    const md: string =
-      (result as any).markdown ?? (result as any).data?.markdown ?? "";
+    if (!result?.success) return "";
+    const md: string = result.markdown ?? result.data?.markdown ?? "";
     return md.slice(0, 30_000);
-  } catch (err) {
+  } catch {
     return "";
   }
 }
