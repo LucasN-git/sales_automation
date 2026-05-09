@@ -2,6 +2,7 @@
 -- Single-user app: every row is owned by trade_shows.user_id, RLS enforces it.
 
 create extension if not exists pgcrypto;
+create extension if not exists pg_trgm;
 
 create table if not exists trade_shows (
   id uuid primary key default gen_random_uuid(),
@@ -48,7 +49,6 @@ create table if not exists exhibitor_intel (
 create index if not exists idx_exhibitors_trade_show on exhibitors (trade_show_id);
 create index if not exists idx_exhibitors_status on exhibitors (enrichment_status);
 create index if not exists idx_exhibitors_name_trgm on exhibitors using gin (company_name gin_trgm_ops);
-create extension if not exists pg_trgm;
 create index if not exists idx_intel_sector on exhibitor_intel using gin (isp_sector_match);
 create index if not exists idx_intel_lifecycle on exhibitor_intel using gin (isp_lifecycle_match);
 
@@ -117,7 +117,17 @@ create policy "exhibitor_intel_via_show"
     )
   );
 
--- Realtime publication (enables Supabase Realtime channels)
-alter publication supabase_realtime add table trade_shows;
-alter publication supabase_realtime add table exhibitors;
-alter publication supabase_realtime add table exhibitor_intel;
+-- Realtime publication (idempotent — only adds if not yet in publication)
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['trade_shows','exhibitors','exhibitor_intel'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
