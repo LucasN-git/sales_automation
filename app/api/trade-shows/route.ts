@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { inngest } from "@/lib/inngest/client";
 
 const Body = z.object({
   name: z.string().min(2).max(200),
@@ -21,7 +20,7 @@ export async function POST(request: Request) {
   let body: z.infer<typeof Body>;
   try {
     body = Body.parse(await request.json());
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
 
@@ -41,10 +40,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error?.message ?? "insert failed" }, { status: 500 });
   }
 
-  await inngest.send({
-    name: "trade-show.requested",
-    data: { tradeShowId: data.id },
-  });
+  // Create initial orchestrator chat thread so the agent's greeting is ready on first load.
+  const { data: thread } = await supabase
+    .from("chat_threads")
+    .insert({
+      user_id: user.id,
+      trade_show_id: data.id,
+      scope: "show",
+      is_orchestrator: true,
+      title: `${body.name} Scraper`,
+    })
+    .select("id")
+    .single();
 
-  return NextResponse.json({ id: data.id });
+  if (thread) {
+    const urlLine = body.source_url
+      ? `\nQuelle: ${body.source_url}`
+      : "\nKeine Aussteller-URL hinterlegt. Bitte zuerst eine URL in den Einstellungen setzen.";
+
+    const greeting = body.source_url
+      ? `Neue Messe erkannt: **${body.name}**${urlLine}\n\nIch bin bereit. Tippe **"starte"** oder **"ja"** um Discovery und Listing zu beginnen, oder stelle mir Fragen zum Ablauf.`
+      : `Neue Messe angelegt: **${body.name}**${urlLine}\n\nSobald eine URL gesetzt ist, kann ich Discovery und Listing starten.`;
+
+    await supabase.from("chat_messages").insert({
+      thread_id: thread.id,
+      trade_show_id: data.id,
+      user_id: user.id,
+      role: "assistant",
+      content: greeting,
+    });
+  }
+
+  return NextResponse.json({ id: data.id, thread_id: thread?.id ?? null });
 }

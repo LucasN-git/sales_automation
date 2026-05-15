@@ -198,11 +198,17 @@ async function pageQueryEndpoint(
  * Best-effort mapping from a generic Algolia hit to our ExhibitorListing
  * shape. Each Algolia setup uses different field names — try the common ones.
  */
-export function mapHitToExhibitor(hit: AlgoliaHit): {
+export type MappedExhibitor = {
   name: string;
   website: string | null;
   booth: string | null;
-} | null {
+  /** Relative or absolute URL of the trade-show's per-exhibitor detail page. */
+  profile_url_path: string | null;
+  /** Rich enrichment harvested from the same hit. */
+  profile_data: Record<string, unknown> | null;
+};
+
+export function mapHitToExhibitor(hit: AlgoliaHit): MappedExhibitor | null {
   const name =
     (hit.name as string | undefined) ??
     (hit.companyName as string | undefined) ??
@@ -249,5 +255,87 @@ export function mapHitToExhibitor(hit: AlgoliaHit): {
     }
   }
 
-  return { name: name.trim(), website, booth };
+  // Profile-page path on the trade-show site itself (e.g. /en/exhibitors/...)
+  // — not the company's external website. Caller absolutizes with base URL.
+  const profile_url_path =
+    typeof hit.url === "string" && hit.url.length > 0 ? hit.url : null;
+
+  // Pull the rich enrichment that Sitecore-style indexes ship with every hit.
+  // Caller stores this verbatim as `profile_data` and the short prompt picks
+  // out useful fields. Schema is intentionally loose — different organisers
+  // (NürnbergMesse, Messe Frankfurt, Messe München) put fields under different
+  // names and we don't want to drop anything just because we didn't recognise
+  // it. Drop only the noise.
+  const profile_data: Record<string, unknown> = {};
+
+  // Address
+  const address: Record<string, string> = {};
+  if (typeof hit.streetno === "string" && hit.streetno) address.street = hit.streetno;
+  if (typeof hit.postcode === "string" && hit.postcode) address.postcode = hit.postcode;
+  if (typeof hit.city === "string" && hit.city) address.city = hit.city;
+  if (typeof hit.country === "string" && hit.country) address.country = hit.country;
+  if (Object.keys(address).length > 0) profile_data.address = address;
+
+  // Contact
+  if (typeof hit.email === "string" && hit.email) profile_data.email = hit.email;
+  if (typeof hit.phone === "string" && hit.phone) profile_data.phone = hit.phone;
+
+  // Description / company metadata
+  for (const k of ["companyDescription", "slogan", "companyType"] as const) {
+    const v = hit[k];
+    if (typeof v === "string" && v) profile_data[k] = v;
+  }
+  if (Array.isArray(hit.employee) && hit.employee.length > 0)
+    profile_data.employee = hit.employee;
+
+  // Sector classification: NürnbergMesse uses filternomenclature_DEF.lvl2 for
+  // the most-specific user-facing categories ("4.1.1. Software", etc).
+  const cats = extractCategories(hit);
+  if (cats.length > 0) profile_data.categories = cats;
+
+  // Keywords / products / co-exhibitors — verbatim arrays
+  for (const k of ["keyword", "products", "coExhibitors"] as const) {
+    const v = hit[k];
+    if (Array.isArray(v) && v.length > 0) profile_data[k] = v;
+  }
+
+  // Logo URL if present (some Sitecore sites populate this)
+  if (typeof hit.logo === "string" && hit.logo) profile_data.logo = hit.logo;
+
+  return {
+    name: name.trim(),
+    website,
+    booth,
+    profile_url_path,
+    profile_data: Object.keys(profile_data).length > 0 ? profile_data : null,
+  };
+}
+
+function extractCategories(hit: AlgoliaHit): string[] {
+  const out = new Set<string>();
+  // NürnbergMesse pattern: nested {lvl0,lvl1,lvl2,lvl3} arrays of "X. Title > Y. Sub > Z. Leaf"
+  for (const facetName of [
+    "filternomenclature_DEF",
+    "filternomenclature_BRANCHE",
+    "filternomenclature_SOND",
+    "filternomenclature_ST",
+    "filternomenclature_BERUF",
+  ]) {
+    const facet = hit[facetName];
+    if (!facet || typeof facet !== "object") continue;
+    // Prefer lvl2 (most-specific user-facing). Fall back to lvl1 if no lvl2.
+    const obj = facet as Record<string, unknown>;
+    const lvl2 = Array.isArray(obj.lvl2) ? (obj.lvl2 as unknown[]) : [];
+    const lvl1 = Array.isArray(obj.lvl1) ? (obj.lvl1 as unknown[]) : [];
+    const source = lvl2.length > 0 ? lvl2 : lvl1;
+    for (const entry of source) {
+      if (typeof entry !== "string") continue;
+      // Take the leaf segment after the last "> "
+      const leaf = entry.split(">").pop()?.trim() ?? entry;
+      // Strip leading numbering like "4.1.1. " for a cleaner display
+      const clean = leaf.replace(/^\d+(\.\d+)*\.\s*/, "").trim();
+      if (clean) out.add(clean);
+    }
+  }
+  return Array.from(out);
 }

@@ -3,8 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { GoldDot } from "@/components/brand/GoldDot";
+import { loading } from "@/components/LoadingBar";
+import { parseErrorJson } from "@/lib/fetch-json";
 import { Hairline } from "@/components/brand/Hairline";
 import type { CrawlPlan } from "@/lib/crawl-plan";
+import { CrawlPlanOverride } from "../CrawlPlanOverride";
 
 type Initial = {
   name: string;
@@ -13,6 +16,7 @@ type Initial = {
   chat_context: string;
   expected_exhibitor_count: number | null;
   crawl_plan: CrawlPlan | null;
+  crawl_plan_raw: Record<string, unknown> | null;
 };
 
 export function ShowSettingsForm({
@@ -63,7 +67,7 @@ export function ShowSettingsForm({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
+        const j = await parseErrorJson(res);
         setError(j.error ?? "Speichern fehlgeschlagen");
         return null;
       }
@@ -113,13 +117,16 @@ export function ShowSettingsForm({
     if (!ok) return;
     setBusy("delete");
     setError(null);
+    loading.start();
     const res = await fetch(`/api/trade-shows/${showId}`, { method: "DELETE" });
     setBusy(null);
     if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
+      const j = await parseErrorJson(res);
       setError(j.error ?? "Loeschen fehlgeschlagen");
+      loading.stop();
       return;
     }
+    // loading.stop() is handled by NavigationLoadingTrigger on pathname commit.
     router.push("/");
     router.refresh();
   }
@@ -186,7 +193,7 @@ export function ShowSettingsForm({
           onChange={(e) => setChatContext(e.target.value)}
           rows={10}
           placeholder="z.b.: leitmesse fuer defense-uavs in europa. fokus dieses jahr: kontakte zu integratoren mit aktuellen battery-rfqs. wir haben donnerstag 14h einen termin mit firma X."
-          className="w-full bg-transparent box-line p-4 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md p-4 text-body focus:outline-none focus:border-[var(--color-near-black)]"
           spellCheck={false}
         />
         <ActionRow>
@@ -285,6 +292,31 @@ export function ShowSettingsForm({
 
       <Hairline />
 
+      {/* ---------- Erweiterte Crawl-Einstellungen ---------- */}
+      <Section label="erweiterte crawl einstellungen">
+        {!initial.crawl_plan_raw ? (
+          <p className="text-body-sm text-[var(--color-near-black)]/65">
+            verfuegbar sobald ein crawl-plan existiert.
+          </p>
+        ) : (
+          <details className="group">
+            <summary className="cursor-pointer text-body-sm text-[var(--color-near-black)]/65 hover:text-[var(--color-near-black)] mb-4 list-none flex items-center gap-2 select-none">
+              <span className="text-meta text-[var(--color-near-black)]/55 group-open:rotate-90 transition-transform inline-block w-3">
+                ›
+              </span>
+              <span>
+                strategy / engine ueberschreiben, plan neu von claude entscheiden lassen, json bearbeiten
+              </span>
+            </summary>
+            <div className="pt-2">
+              <CrawlPlanOverride showId={showId} plan={initial.crawl_plan_raw} />
+            </div>
+          </details>
+        )}
+      </Section>
+
+      <Hairline />
+
       {/* ---------- Danger Zone ---------- */}
       <Section label="danger zone">
         <p className="mb-4 text-body-sm text-[var(--color-near-black)]/65 max-w-2xl">
@@ -294,7 +326,7 @@ export function ShowSettingsForm({
         <button
           onClick={deleteShow}
           disabled={busy === "delete"}
-          className="inline-flex items-center gap-2 text-ui-sm px-3 py-1 border border-[var(--color-near-black)] text-[var(--color-near-black)] font-semibold hover:text-[var(--color-gold)] hover:scale-[1.05] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
+          className="inline-flex items-center gap-2 text-ui-sm px-3 py-1.5 border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] font-semibold hover:text-[var(--color-gold)] hover:scale-[1.05] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
         >
           {busy === "delete" ? "loesche" : "messe loeschen"}
         </button>
@@ -354,7 +386,7 @@ function TextInput({
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className={`w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)] ${
+      className={`w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)] ${
         tabular ? "tabular-nums" : ""
       }`}
     />
@@ -378,7 +410,7 @@ function PrimaryButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-2 text-ui-sm px-3 py-1 border border-[var(--color-near-black)] text-[var(--color-near-black)] font-semibold hover:text-[var(--color-gold)] hover:scale-[1.05] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
+      className="inline-flex items-center gap-2 text-ui-sm px-3 py-1.5 border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] font-semibold hover:text-[var(--color-gold)] hover:scale-[1.05] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
     >
       <span>{children}</span>
       <GoldDot size={6} />

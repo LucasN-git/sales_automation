@@ -9,14 +9,27 @@ export async function executePagination(
   const all = new Map<string, ExhibitorListing>();
   let consecutiveEmpty = 0;
 
+  // Prefer deterministic rawHtml regex-extraction when Discovery gave us a
+  // stable detail-page prefix. Avoids Firecrawl LLM-extraction drift where
+  // some pages return 0 items and the executor stops early.
+  const detailPathPrefix = plan.hints.detail_path_prefix;
+
   for (let p = plan.start_page; p < plan.start_page + plan.max_pages; p++) {
     await onProgress(`page_${p}`);
     const url = plan.page_url_template
       .replace("{base}", plan.base_url)
       .replace("{n}", String(p));
 
-    const batch = await scrapeExhibitorPage(url, { waitFor: 2500 });
+    const batch = await scrapeExhibitorPage(url, {
+      waitFor: 2500,
+      detailPathPrefix,
+    });
     const added = mergeBatch(all, batch);
+    await onProgress(`page_${p}_done`, {
+      page: p,
+      added,
+      total: all.size,
+    });
 
     if (added === 0) {
       consecutiveEmpty++;

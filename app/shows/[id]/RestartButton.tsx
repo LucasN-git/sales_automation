@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { loading } from "@/components/LoadingBar";
+import { parseErrorJson } from "@/lib/fetch-json";
 
 export function RestartButton({ showId }: { showId: string }) {
   const [pending, setPending] = useState(false);
@@ -17,16 +19,21 @@ export function RestartButton({ showId }: { showId: string }) {
 
     setPending(true);
     setError(null);
-    const res = await fetch(`/api/trade-shows/${showId}/restart`, {
-      method: "POST",
-    });
-    setPending(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setError(j.error ?? "Konnte nicht neu starten.");
-      return;
+    loading.start();
+    try {
+      const res = await fetch(`/api/trade-shows/${showId}/restart`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const j = await parseErrorJson(res);
+        setError(j.error ?? "Konnte nicht neu starten.");
+        return;
+      }
+      startTransition(() => router.refresh());
+    } finally {
+      setPending(false);
+      loading.stop();
     }
-    startTransition(() => router.refresh());
   }
 
   return (

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useState, useTransition } from "react";
+import { List, type RowComponentProps } from "react-window";
 import { Hairline } from "@/components/brand/Hairline";
 import { GoldDot } from "@/components/brand/GoldDot";
+import { useIsDesktop } from "@/lib/use-is-desktop";
 
 type Exhibitor = {
   id: string;
@@ -18,15 +20,34 @@ type Exhibitor = {
   priority_label: string | null;
   isp_sector_match: string[];
   match_confidence: number | null;
+  user_group: string | null;
+  battery_need: string | null;
+};
+
+const BATTERY_NEED_LABELS: Record<string, string> = {
+  sehr_hoch: "sehr hoch",
+  hoch: "hoch",
+  mittel: "mittel",
+  gering: "gering",
+  keiner: "keiner",
 };
 
 type Sector = { id: string; name: string; scope: string };
 
 const PRIO_COLORS: Record<string, string> = {
-  hot: "border-[var(--color-near-black)] text-[var(--color-near-black)] font-bold",
-  warm: "border-[var(--color-near-black)]/60 text-[var(--color-near-black)]/80",
-  cold: "border-[var(--color-hairline-light)] text-[var(--color-near-black)]/40",
+  hoch: "border-[var(--color-gold)]/60 bg-[var(--color-gold)]/10 text-[var(--color-near-black)] font-semibold rounded-sm",
+  mittel: "border-[var(--color-blue)]/40 bg-[var(--color-blue)]/5 text-[var(--color-near-black)]/80 rounded-sm",
+  niedrig: "border-[var(--border-color-soft)] text-[var(--color-near-black)]/40 rounded-sm",
 };
+
+function scoreColor(score: number): string {
+  if (score >= 8) return "var(--color-success)";
+  if (score >= 5) return "var(--color-gold)";
+  return "rgba(10,10,10,0.35)";
+}
+
+const ROW_HEIGHT_DESKTOP = 80;
+const ROW_HEIGHT_MOBILE = 120;
 
 export function ExhibitorList({
   exhibitors,
@@ -36,6 +57,7 @@ export function ExhibitorList({
   currentSector,
   currentSort,
   currentPrio,
+  currentBattery,
 }: {
   exhibitors: Exhibitor[];
   showId: string;
@@ -44,12 +66,14 @@ export function ExhibitorList({
   currentSector: string;
   currentSort: string;
   currentPrio: string;
+  currentBattery: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [q, setQ] = useState(currentQuery);
   const [, startTransition] = useTransition();
+  const isDesktop = useIsDesktop();
 
   function update(patch: Record<string, string | null>) {
     const next = new URLSearchParams(params.toString());
@@ -59,6 +83,20 @@ export function ExhibitorList({
     });
     startTransition(() => {
       router.replace(`${pathname}?${next.toString()}`);
+    });
+  }
+
+  const hasFilters =
+    !!currentQuery ||
+    !!currentSector ||
+    !!currentPrio ||
+    !!currentBattery ||
+    (currentSort && currentSort !== "match");
+
+  function clearFilters() {
+    setQ("");
+    startTransition(() => {
+      router.replace(pathname);
     });
   }
 
@@ -73,12 +111,12 @@ export function ExhibitorList({
           }}
           onBlur={() => update({ q })}
           placeholder="firmen-name suchen"
-          className="flex-1 bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+          className="flex-1 bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
         <select
           value={currentSort}
           onChange={(e) => update({ sort: e.target.value })}
-          className="bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-ui focus:outline-none"
+          className="bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-ui focus:outline-none"
         >
           <option value="match">nach match</option>
           <option value="name">nach name</option>
@@ -88,9 +126,18 @@ export function ExhibitorList({
       <div className="flex items-center gap-2 flex-wrap mb-2">
         <span className="text-meta mr-1">prio</span>
         <Chip label="alle" active={!currentPrio} onClick={() => update({ prio: null })} />
-        <Chip label="hot" active={currentPrio === "hot"} onClick={() => update({ prio: "hot" })} />
-        <Chip label="warm" active={currentPrio === "warm"} onClick={() => update({ prio: "warm" })} />
-        <Chip label="cold" active={currentPrio === "cold"} onClick={() => update({ prio: "cold" })} />
+        <Chip label="hoch" active={currentPrio === "hoch"} onClick={() => update({ prio: "hoch" })} />
+        <Chip label="mittel" active={currentPrio === "mittel"} onClick={() => update({ prio: "mittel" })} />
+        <Chip label="niedrig" active={currentPrio === "niedrig"} onClick={() => update({ prio: "niedrig" })} />
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <span className="text-meta mr-1">batterie</span>
+        <Chip label="alle" active={!currentBattery} onClick={() => update({ battery: null })} />
+        <Chip label="sehr hoch" active={currentBattery === "sehr_hoch"} onClick={() => update({ battery: "sehr_hoch" })} />
+        <Chip label="hoch" active={currentBattery === "hoch"} onClick={() => update({ battery: "hoch" })} />
+        <Chip label="mittel" active={currentBattery === "mittel"} onClick={() => update({ battery: "mittel" })} />
+        <Chip label="gering" active={currentBattery === "gering"} onClick={() => update({ battery: "gering" })} />
       </div>
 
       <div className="flex items-center gap-2 flex-wrap mb-6">
@@ -104,6 +151,15 @@ export function ExhibitorList({
             onClick={() => update({ sector: s.id })}
           />
         ))}
+        {hasFilters && (
+          <button
+            onClick={clearFilters}
+            className="text-ui-sm px-3 py-1 border border-[var(--color-near-black)] rounded-sm text-[var(--color-near-black)] font-semibold hover:text-[var(--color-gold)] transition-colors ml-2"
+            title="Suche, Sortierung, Prio- und Sektor-Filter zuruecksetzen"
+          >
+            filter loeschen
+          </button>
+        )}
       </div>
 
       <Hairline />
@@ -112,79 +168,177 @@ export function ExhibitorList({
           keine aussteller gefunden
         </div>
       ) : (
-        <ul className="space-y-2 mt-4">
-          {exhibitors.map((e) => (
-            <li key={e.id}>
-              <Link
-                href={`/shows/${showId}/exhibitors/${e.id}`}
-                className="block px-5 py-4 box-line hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
-              >
-                <div className="grid grid-cols-12 gap-4 items-baseline">
-                  <div className="col-span-12 md:col-span-6">
-                    <div className="text-subtitle truncate">
-                      {e.company_name}
-                    </div>
-                    {e.one_liner ? (
-                      <div className="text-body-sm text-[var(--color-near-black)]/65 truncate">
-                        {e.one_liner}
-                      </div>
-                    ) : (
-                      <div className="text-meta">
-                        {e.short_status === "running"
-                          ? "wird analysiert"
-                          : e.short_status === "failed"
-                          ? "short fehlgeschlagen"
-                          : "noch keine einschaetzung"}
-                      </div>
-                    )}
-                  </div>
-                  <div className="col-span-6 md:col-span-3 flex flex-wrap gap-1.5">
-                    {e.priority_label && (
-                      <span
-                        className={`text-meta-strong px-2 py-0.5 border ${
-                          PRIO_COLORS[e.priority_label] ?? ""
-                        }`}
-                      >
-                        {e.priority_label}
-                      </span>
-                    )}
-                    {e.deep_status === "done" && (
-                      <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
-                        deep
-                      </span>
-                    )}
-                    {e.isp_sector_match.slice(0, 2).map((s) => (
-                      <span
-                        key={s}
-                        className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55"
-                      >
-                        {s.replace("_", " ")}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="col-span-4 md:col-span-2 text-right">
-                    {e.match_confidence !== null ? (
-                      <span className="tabular-nums text-title">
-                        {e.match_confidence}
-                        <span style={{ color: "var(--color-gold)" }}>.</span>
-                      </span>
-                    ) : (
-                      <span className="text-meta inline-flex items-center gap-1">
-                        {e.short_status === "running" && <GoldDot size={5} />}
-                        {e.short_status}
-                      </span>
-                    )}
-                  </div>
-                  <div className="col-span-2 md:col-span-1 text-right text-meta truncate">
-                    {e.booth ?? ""}
-                  </div>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div
+          className="mt-4 isp-list-scroll"
+          style={{
+            height: isDesktop ? "calc(100vh - 220px)" : "calc(100vh - 320px)",
+            minHeight: 320,
+          }}
+        >
+          <List
+            key={isDesktop ? "d" : "m"}
+            rowCount={exhibitors.length}
+            rowHeight={isDesktop ? ROW_HEIGHT_DESKTOP : ROW_HEIGHT_MOBILE}
+            rowComponent={ExhibitorRow}
+            rowProps={{ exhibitors, showId }}
+            defaultHeight={600}
+            overscanCount={4}
+            style={{ height: "100%" }}
+            className="isp-list-scroll"
+          />
+        </div>
       )}
     </>
+  );
+}
+
+type RowExtra = { exhibitors: Exhibitor[]; showId: string };
+
+function ExhibitorRow({
+  index,
+  style,
+  exhibitors,
+  showId,
+}: RowComponentProps<RowExtra>) {
+  const e = exhibitors[index];
+  const placeholder =
+    e.short_status === "running"
+      ? "wird analysiert"
+      : e.short_status === "failed"
+        ? "short fehlgeschlagen"
+        : "noch keine einschaetzung";
+
+  return (
+    <div style={style} className="pb-2 pr-2">
+      <Link
+        href={`/shows/${showId}/exhibitors/${e.id}`}
+        className="block px-5 py-4 box-line rounded-lg hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
+      >
+        {/* Desktop layout — unchanged 12-column grid */}
+        <div className="hidden lg:grid grid-cols-12 gap-4 items-baseline">
+          <div className="col-span-6">
+            <div className="text-subtitle truncate">{e.company_name}</div>
+            {e.one_liner ? (
+              <div className="text-body-sm text-[var(--color-near-black)]/65 truncate">
+                {e.one_liner}
+              </div>
+            ) : (
+              <div className="text-meta">{placeholder}</div>
+            )}
+          </div>
+          <div className="col-span-3 flex flex-wrap gap-1.5">
+            {e.priority_label && (
+              <span
+                className={`text-meta-strong px-2 py-0.5 border ${
+                  PRIO_COLORS[e.priority_label] ?? ""
+                }`}
+              >
+                {e.priority_label}
+              </span>
+            )}
+            {e.battery_need && e.battery_need !== "keiner" && (
+              <span
+                className="text-meta-strong px-2 py-0.5 border"
+                style={{
+                  borderColor: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : "var(--border-color-soft)",
+                  color: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : undefined,
+                }}
+              >
+                {BATTERY_NEED_LABELS[e.battery_need] ?? e.battery_need}
+              </span>
+            )}
+            {e.user_group && (
+              <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55">
+                {e.user_group}
+              </span>
+            )}
+            {e.deep_status === "done" && (
+              <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
+                deep
+              </span>
+            )}
+          </div>
+          <div className="col-span-2 text-right">
+            {e.match_confidence !== null ? (
+              <span className="tabular-nums text-title">
+                {e.match_confidence}
+                <span style={{ color: scoreColor(e.match_confidence!) }}>.</span>
+              </span>
+            ) : (
+              <span className="text-meta inline-flex items-center gap-1">
+                {e.short_status === "running" && <GoldDot size={5} />}
+                {e.short_status}
+              </span>
+            )}
+          </div>
+          <div className="col-span-1 text-right text-meta truncate">
+            {e.booth ?? ""}
+          </div>
+        </div>
+
+        {/* Mobile layout — vertical stack */}
+        <div className="lg:hidden flex flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="text-subtitle truncate min-w-0">{e.company_name}</div>
+            <div className="shrink-0 text-right">
+              {e.match_confidence !== null ? (
+                <span className="tabular-nums text-title">
+                  {e.match_confidence}
+                  <span style={{ color: scoreColor(e.match_confidence!) }}>.</span>
+                </span>
+              ) : (
+                <span className="text-meta inline-flex items-center gap-1">
+                  {e.short_status === "running" && <GoldDot size={5} />}
+                  {e.short_status}
+                </span>
+              )}
+            </div>
+          </div>
+          {e.one_liner ? (
+            <div className="text-body-sm text-[var(--color-near-black)]/65 line-clamp-2">
+              {e.one_liner}
+            </div>
+          ) : (
+            <div className="text-meta">{placeholder}</div>
+          )}
+          <div className="flex flex-wrap gap-1.5 items-baseline">
+            {e.priority_label && (
+              <span
+                className={`text-meta-strong px-2 py-0.5 border ${
+                  PRIO_COLORS[e.priority_label] ?? ""
+                }`}
+              >
+                {e.priority_label}
+              </span>
+            )}
+            {e.battery_need && e.battery_need !== "keiner" && (
+              <span
+                className="text-meta-strong px-2 py-0.5 border"
+                style={{
+                  borderColor: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : "var(--border-color-soft)",
+                  color: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : undefined,
+                }}
+              >
+                {BATTERY_NEED_LABELS[e.battery_need] ?? e.battery_need}
+              </span>
+            )}
+            {e.user_group && (
+              <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55">
+                {e.user_group}
+              </span>
+            )}
+            {e.deep_status === "done" && (
+              <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
+                deep
+              </span>
+            )}
+            {e.booth && (
+              <span className="ml-auto text-meta truncate">{e.booth}</span>
+            )}
+          </div>
+        </div>
+      </Link>
+    </div>
   );
 }
 
@@ -200,10 +354,10 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`text-ui-sm px-3 py-1 border transition-colors ${
+      className={`text-ui-sm px-3 py-1 border rounded-sm transition-colors ${
         active
-          ? "border-[var(--color-near-black)] text-[var(--color-near-black)] font-semibold"
-          : "border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-gold)] hover:border-[var(--border-color)]"
+          ? "border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.06] text-[var(--color-near-black)] font-semibold"
+          : "border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-near-black)] hover:border-[var(--border-color)]"
       }`}
     >
       {label}

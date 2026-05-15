@@ -28,8 +28,8 @@ export const ISP_CATALOG = {
 export type SectorId = (typeof ISP_CATALOG.sectors)[number]["id"];
 export type LifecycleId = (typeof ISP_CATALOG.lifecycle)[number]["id"];
 
-export const SECTOR_IDS = ISP_CATALOG.sectors.map((s) => s.id);
-export const LIFECYCLE_IDS = ISP_CATALOG.lifecycle.map((l) => l.id);
+export const SECTOR_IDS = ISP_CATALOG.sectors.map((s) => s.id) as [SectorId, ...SectorId[]];
+export const LIFECYCLE_IDS = ISP_CATALOG.lifecycle.map((l) => l.id) as [LifecycleId, ...LifecycleId[]];
 
 export function catalogAsPromptBlock(): string {
   const sectors = ISP_CATALOG.sectors

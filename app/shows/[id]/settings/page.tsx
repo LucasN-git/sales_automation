@@ -61,6 +61,8 @@ export default async function ShowSettingsPage({
           chat_context: show.chat_context ?? "",
           expected_exhibitor_count: show.expected_exhibitor_count ?? null,
           crawl_plan: crawlPlan,
+          crawl_plan_raw:
+            (show.crawl_plan as Record<string, unknown> | null) ?? null,
         }}
       />
     </>

@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { GoldDot } from "@/components/brand/GoldDot";
+import { loading } from "@/components/LoadingBar";
+import { parseErrorJson } from "@/lib/fetch-json";
 
 export function NewShowForm() {
   const [name, setName] = useState("");
@@ -16,6 +18,7 @@ export function NewShowForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    loading.start();
     const res = await fetch("/api/trade-shows", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -26,14 +29,16 @@ export function NewShowForm() {
       }),
     });
     if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
+      const j = await parseErrorJson(res);
       setError(j.error ?? "Fehler beim Anlegen.");
+      loading.stop();
       return;
     }
     const { id } = await res.json();
     setOpen(false);
     setName("");
     setUrl("");
+    // loading.stop() is handled by NavigationLoadingTrigger on pathname commit.
     startTransition(() => {
       router.push(`/shows/${id}`);
       router.refresh();
@@ -64,7 +69,7 @@ export function NewShowForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="AUSA Annual Meeting"
-          className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
       </div>
       <div className="md:col-span-5">
@@ -74,7 +79,7 @@ export function NewShowForm() {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://meeting.ausa.org/exhibitors"
-          className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
       </div>
       <div className="md:col-span-2">
@@ -85,7 +90,7 @@ export function NewShowForm() {
           max={2030}
           value={year}
           onChange={(e) => setYear(e.target.value)}
-          className="w-full bg-transparent border-0 border-b border-[var(--border-color-soft)] py-2 text-body tabular-nums focus:outline-none focus:border-[var(--color-near-black)]"
+          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body tabular-nums focus:outline-none focus:border-[var(--color-near-black)]"
         />
       </div>
 

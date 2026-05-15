@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { inngest } from "@/lib/inngest/client";
+import { notifyOrchestratorThread } from "@/lib/chat-notify";
 
 export async function POST(
   _request: Request,
@@ -73,6 +74,15 @@ export async function POST(
     name: "trade-show.requested",
     data: { tradeShowId: id },
   });
+
+  await notifyOrchestratorThread(
+    supabase,
+    id,
+    user.id,
+    "Neustart per UI-Button: alle Aussteller geloescht, Listing laeuft neu.",
+    "restart_pipeline",
+    { confirmed: true },
+  );
 
   return NextResponse.json({ ok: true });
 }

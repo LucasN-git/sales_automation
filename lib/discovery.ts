@@ -51,8 +51,18 @@ CRITICAL — show_more_selector must be SPECIFIC and match ONLY the visible "loa
 3. "pagination" — URL-based pagination, e.g. ?page=1, ?page=2, or /page/1.
    Required fields when chosen: page_url_template (with {base} and {n} placeholders), start_page (usually 1), max_pages.
 
+   IMPORTANT — JS-infinite-scroll trigger detection: many sites hide pagination behind a scroll-loader and show no visible "Next page" link. The list looks single-page-ish but is actually paginated server-side. Treat ANY of these as a strong "pick pagination" signal:
+   - HTML attributes carrying a paginated URL: \`data-url="...?page=2"\`, \`data-page=\`, \`data-next=\`, \`data-load-more=\`, \`data-paginate-url=\`, \`data-href="...?page="\`, \`data-ajax-url="...?page="\`
+   - Result-list container with a sibling/inner element containing such a data-url
+   - Hidden anchors / preloaded pagination links anywhere in the HTML (including inside script tags or comments) matching the pattern \`[?&]page=N\`, \`[?&]p=N\`, \`/page/N\`, \`[?&]start=NN\`, \`[?&]offset=NN\`
+   When you see this, pick \`strategy=pagination\` with the matching template (e.g. \`{base}?page={n}\`) even if no visible "next page" button exists. The server renders each page independently, so direct URL fetches work reliably. Set \`max_pages\` to a generous cap (30–50). The executor stops on 2 consecutive empty pages, so over-estimating is safe.
+
+   COUNTER-EXAMPLE: do NOT pick pagination just because the URL contains "page" anywhere (e.g. \`/our-pages/\`, \`/page-builder/\`). The pattern must be a query-param value or a numbered path-segment.
+
 4. "single_page" — all exhibitors visible without interaction (small lists).
    No extra fields required.
+
+   STRONG DEFAULT BIAS: only pick this if the listing is genuinely small (< 30 items visible AND no scroll-loader / data-url / pagination attributes anywhere in the HTML). If the visible list shows ~20 items and you also see ANY infinite-scroll trigger (see strategy 3 above), pick pagination instead — single_page only captures the initial SSR snapshot and misses everything loaded via scroll.
 
 For hints.detail_path_prefix: if exhibitor detail pages share a URL prefix (e.g. "/en/exhibitors/"), put that string. Otherwise null.
 

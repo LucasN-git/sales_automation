@@ -84,13 +84,36 @@ export async function executeAlgoliaApi(
 
   const seen = new Set<string>();
   const out: ExhibitorListing[] = [];
+  // Resolve relative profile-page paths against the listing's base URL.
+  let baseOrigin: string | null = null;
+  try {
+    baseOrigin = new URL(plan.base_url).origin;
+  } catch {
+    baseOrigin = null;
+  }
   for (const h of hits) {
     const m = mapHitToExhibitor(h);
     if (!m) continue;
     const key = m.name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(m);
+
+    let profile_url: string | null = null;
+    if (m.profile_url_path) {
+      if (/^https?:\/\//i.test(m.profile_url_path)) {
+        profile_url = m.profile_url_path;
+      } else if (baseOrigin) {
+        profile_url = baseOrigin + (m.profile_url_path.startsWith("/") ? "" : "/") + m.profile_url_path;
+      }
+    }
+
+    out.push({
+      name: m.name,
+      website: m.website,
+      booth: m.booth,
+      profile_url,
+      profile_data: m.profile_data,
+    });
   }
 
   return { exhibitors: out, sessionSec, creds };

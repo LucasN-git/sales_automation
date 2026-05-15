@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { inngest } from "@/lib/inngest/client";
 import { tryAppendLog } from "@/lib/crawl-log";
+import { notifyOrchestratorThread } from "@/lib/chat-notify";
 
 export async function POST(
   _request: Request,
@@ -33,10 +34,15 @@ export async function POST(
 
   const phase = show.paused_phase ?? "discovery";
 
+  // Resume restores the show to the correct status for its phase. Short-phase
+  // resumes go back to 'ready' (listing was already complete); pipeline-phase
+  // resumes go back to 'queued' so the crawl-trade-show function reactivates.
+  const restoreStatus = phase === "short" ? "ready" : "queued";
+
   const admin = createServiceRoleClient();
   await admin
     .from("trade_shows")
-    .update({ status: "queued", paused_phase: null, current_step: null })
+    .update({ status: restoreStatus, paused_phase: null, current_step: null })
     .eq("id", id);
 
   await tryAppendLog(admin, id, {
@@ -57,6 +63,14 @@ export async function POST(
     });
   }
   // Deep-Dive resumes are not bulk; user re-clicks individual rows.
+
+  await notifyOrchestratorThread(
+    supabase,
+    id,
+    user.id,
+    `Pipeline fortgesetzt (Phase: ${phase}) — per UI-Button. Laeuft im Hintergrund.`,
+    "resume_pipeline",
+  );
 
   return NextResponse.json({ ok: true, resumed_phase: phase });
 }

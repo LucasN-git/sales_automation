@@ -17,7 +17,7 @@ export async function POST(
 
   const { data: exhibitor, error } = await supabase
     .from("exhibitors")
-    .select("id, trade_show_id")
+    .select("id, trade_show_id, company_name")
     .eq("id", id)
     .single();
   if (error || !exhibitor) {
@@ -36,5 +36,32 @@ export async function POST(
     data: { exhibitorId: id, tradeShowId: exhibitor.trade_show_id },
   });
 
-  return NextResponse.json({ ok: true });
+  // Insert synthetic orchestrator message into the latest open chat thread for this exhibitor
+  const { data: thread } = await supabase
+    .from("chat_threads")
+    .select("id, trade_show_id")
+    .eq("exhibitor_focus", id)
+    .order("last_message_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (thread) {
+    const msgText = `Deep-Dive fuer ${exhibitor.company_name} gestartet. Laeuft im Hintergrund (~1-2 Min).`;
+    await supabase.from("chat_messages").insert({
+      trade_show_id: thread.trade_show_id,
+      user_id: user.id,
+      thread_id: thread.id,
+      role: "assistant",
+      content: msgText,
+      pipeline_action: [
+        {
+          tool: "trigger_deep_dive",
+          input: { exhibitor_id: id },
+          result: msgText,
+        },
+      ],
+    });
+  }
+
+  return NextResponse.json({ ok: true, threadId: thread?.id ?? null });
 }

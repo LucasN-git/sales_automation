@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { CrawlPlanSchema } from "@/lib/crawl-plan";
+import { showExhibitorsTag } from "@/lib/show-cache";
 
 const PatchBody = z.object({
   name: z.string().min(2).max(200).optional(),
@@ -9,6 +11,7 @@ const PatchBody = z.object({
   year: z.number().int().min(2000).max(2100).nullable().optional(),
   chat_context: z.string().max(8000).nullable().optional(),
   crawl_plan: z.unknown().optional(),
+  is_favorite: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -37,6 +40,7 @@ export async function PATCH(
     const trimmed = typeof body.chat_context === "string" ? body.chat_context.trim() : null;
     update.chat_context = trimmed && trimmed.length > 0 ? trimmed : null;
   }
+  if ("is_favorite" in body) update.is_favorite = body.is_favorite;
   if ("crawl_plan" in body) {
     if (body.crawl_plan === null) {
       update.crawl_plan = null;
@@ -61,12 +65,14 @@ export async function PATCH(
     .update(update)
     .eq("id", id)
     .select(
-      "id, name, source_url, year, chat_context, crawl_plan, expected_exhibitor_count",
+      "id, name, source_url, year, chat_context, crawl_plan, expected_exhibitor_count, is_favorite",
     )
     .single();
   if (error || !data) {
     return NextResponse.json({ error: error?.message ?? "update failed" }, { status: 500 });
   }
+
+  revalidateTag(showExhibitorsTag(id));
 
   return NextResponse.json({ show: data });
 }

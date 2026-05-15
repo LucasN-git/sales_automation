@@ -25,14 +25,27 @@ export type StrategyProgress = (
  * Pull exhibitor entries out of a rendered HTML snapshot, given the
  * detail-page path-prefix the Discovery phase identified (e.g. "/en/exhibitors/").
  * Robust regex match — no LLM needed, deterministic, free.
+ *
+ * If baseUrl is given, the matched href is resolved into an absolute URL and
+ * stored as profile_url so the per-exhibitor profile-enrich step can scrape
+ * the detail page directly.
  */
 export function extractExhibitorLinksFromHtml(
   html: string,
   prefix: string,
+  baseUrl?: string,
 ): ExhibitorListing[] {
   if (!prefix) return [];
   const seen = new Set<string>();
   const out: ExhibitorListing[] = [];
+  let origin: string | null = null;
+  if (baseUrl) {
+    try {
+      origin = new URL(baseUrl).origin;
+    } catch {
+      origin = null;
+    }
+  }
   // Match <a href="...prefix..." >...</a>. Inner text becomes the company name.
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(
@@ -57,7 +70,13 @@ export function extractExhibitorLinksFromHtml(
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ name, website: null, booth: null });
+    let profile_url: string | null = null;
+    if (/^https?:\/\//i.test(href)) {
+      profile_url = href;
+    } else if (origin) {
+      profile_url = origin + (href.startsWith("/") ? "" : "/") + href;
+    }
+    out.push({ name, website: null, booth: null, profile_url });
   }
   return out;
 }
@@ -79,6 +98,8 @@ export function mergeBatch(
       name,
       website: ex.website?.trim() || null,
       booth: ex.booth?.trim() || null,
+      profile_url: ex.profile_url?.trim() || null,
+      profile_data: ex.profile_data ?? null,
     });
     added++;
   }
@@ -92,11 +113,41 @@ export function mergeBatch(
  * Firecrawl Free-Tier defaults to 30s timeout. With many click-actions we hit
  * that easily, so we set an explicit `timeout`. On Free this is capped server
  * side; Pro plans accept higher values.
+ *
+ * When `detailPathPrefix` is supplied, the function takes a much faster &
+ * cheaper path: rawHtml + deterministic regex extraction of all <a> links
+ * matching the prefix. No LLM-extraction, no "sometimes 0 items" drift, 1
+ * Firecrawl credit instead of 5. Use this whenever the Discovery phase has
+ * identified a stable detail-page URL pattern.
  */
 export async function scrapeExhibitorPage(
   url: string,
-  opts: { actions?: any[]; waitFor?: number; timeoutMs?: number } = {},
+  opts: {
+    actions?: any[];
+    waitFor?: number;
+    timeoutMs?: number;
+    detailPathPrefix?: string | null;
+  } = {},
 ): Promise<ExhibitorListing[]> {
+  if (opts.detailPathPrefix) {
+    try {
+      const result: any = await fc().scrapeUrl(url, {
+        formats: ["rawHtml"],
+        onlyMainContent: false,
+        waitFor: opts.waitFor ?? 2500,
+        timeout: opts.timeoutMs ?? 30_000,
+        ...(opts.actions ? { actions: opts.actions } : {}),
+      });
+      if (!result?.success) return [];
+      const html: string =
+        result.rawHtml ?? result.data?.rawHtml ?? result.html ?? result.data?.html ?? "";
+      if (!html) return [];
+      return extractExhibitorLinksFromHtml(html, opts.detailPathPrefix, url);
+    } catch {
+      return [];
+    }
+  }
+
   try {
     const result: any = await fc().scrapeUrl(url, {
       formats: ["json"],

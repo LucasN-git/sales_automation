@@ -15,10 +15,42 @@ export function priceFor(model: string, tokensIn: number, tokensOut: number): nu
   return (tokensIn * p.input + tokensOut * p.output) / 1_000_000;
 }
 
+// Anthropic cache-aware Pricing fuer Chat-Calls.
+// cache_creation: 1.25x input rate (Anthropics Premium fuer Cache-Writes).
+// cache_read:     0.1x input rate (Cache-Hits sind ~10% des Input-Preises).
+// input:          regulaere Input-Tokens (NICHT-gecached).
+export type ChatTokenBreakdown = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+};
+
+export function priceForChat(
+  model: string,
+  tokens: ChatTokenBreakdown,
+): number {
+  const p = PRICING_USD_PER_M[model] ?? FALLBACK;
+  const inputCost = tokens.input_tokens * p.input;
+  const outputCost = tokens.output_tokens * p.output;
+  const cacheCreateCost = tokens.cache_creation_input_tokens * p.input * 1.25;
+  const cacheReadCost = tokens.cache_read_input_tokens * p.input * 0.1;
+  return (inputCost + outputCost + cacheCreateCost + cacheReadCost) / 1_000_000;
+}
+
 /** Browserbase pricing estimate (USD per minute, mid-range). Adjust if pricing changes. */
 const BROWSERBASE_USD_PER_MIN = 0.17;
 export function priceForBrowserSec(seconds: number): number {
   return (seconds / 60) * BROWSERBASE_USD_PER_MIN;
+}
+
+// Anthropic Native Web-Search: $10 / 1000 requests = $0.01 / request.
+// Quelle: anthropic.com/api Pricing (Stand 2026-05). Wird separat von Token-Cost
+// erfasst, weil die Kosten pro Discovery-/Deep-Lauf signifikant beitragen koennen.
+const WEB_SEARCH_USD_PER_REQUEST = 0.01;
+export function priceForWebSearch(uses: number): number {
+  if (uses <= 0) return 0;
+  return uses * WEB_SEARCH_USD_PER_REQUEST;
 }
 
 export function formatCost(usd: number): string {

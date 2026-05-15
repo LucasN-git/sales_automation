@@ -16,9 +16,13 @@ export const ExhibitorListSchema = z.object({
         name: z.string().min(1),
         website: z.string().nullable().optional(),
         booth: z.string().nullable().optional(),
+        /** Absolute URL of the trade-show's per-exhibitor detail page. */
+        profile_url: z.string().nullable().optional(),
+        /** Rich pre-scraped enrichment from the listing source (e.g. Algolia). */
+        profile_data: z.record(z.unknown()).nullable().optional(),
       }),
     )
-    .max(500),
+    .max(2000),
 });
 
 export type ExhibitorListing = z.infer<typeof ExhibitorListSchema>["exhibitors"][number];
@@ -65,6 +69,48 @@ export async function getExhibitorList(url: string): Promise<ExhibitorListing[]>
       seen.add(key);
       return true;
     });
+}
+
+const ShowSiteSchema = z.object({
+  event_name: z.string().optional(),
+  next_edition_dates: z.string().optional(),
+  location_city: z.string().optional(),
+  venue_name: z.string().optional(),
+  exhibitor_count: z.number().optional(),
+  visitor_count: z.number().optional(),
+});
+
+export type ShowSiteExtracted = z.infer<typeof ShowSiteSchema>;
+
+/**
+ * Scrape a trade-show website and extract structured metadata.
+ * Returns null on failure.
+ */
+export async function scrapeShowSite(
+  url: string,
+): Promise<{ extracted: ShowSiteExtracted; confirmedUrl: string } | null> {
+  try {
+    const result: any = await app().scrapeUrl(url, {
+      formats: ["json"],
+      jsonOptions: {
+        schema: ShowSiteSchema,
+        prompt:
+          "Extract: official event name, next edition dates (as text), city, venue name, approximate number of exhibitors, approximate number of visitors.",
+      },
+      onlyMainContent: false,
+      waitFor: 2000,
+    });
+    if (!result?.success) return null;
+    const json = result.json ?? result.data?.json;
+    if (!json) return null;
+    const parsed = ShowSiteSchema.safeParse(json);
+    return {
+      extracted: parsed.success ? parsed.data : (json as ShowSiteExtracted),
+      confirmedUrl: result.metadata?.url ?? url,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
