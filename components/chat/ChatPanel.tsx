@@ -12,6 +12,7 @@ import {
   MoreVerticalIcon,
   PlusIcon,
   SendIcon,
+  StopIcon,
 } from "@/components/brand/Icons";
 import { formatCost } from "@/lib/pricing";
 
@@ -206,7 +207,7 @@ export function ChatPanel({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [model, setModel] = useState(MODELS[1].id);
-  const [withWebSearch, setWithWebSearch] = useState(false);
+  const [withWebSearch, setWithWebSearch] = useState(true);
   const [withDeepContext, setWithDeepContext] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +229,7 @@ export function ChatPanel({
   const [showDeepDone, setShowDeepDone] = useState(false);
   const prevDeepStatusRef = useRef<string | null | undefined>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const liveDeepStatus = scope.kind === "show" ? (scope.deepStatus ?? null) : null;
   const liveCurrentStep = scope.kind === "show" ? (scope.currentStep ?? null) : null;
@@ -372,9 +374,26 @@ export function ChatPanel({
     setSessionCost(0);
   }
 
+  function stop() {
+    // Don't null the ref here — the in-flight send()'s finally identifies
+    // its own controller via `abortRef.current === controller` to reset
+    // `sending` exactly when the torn-down stream is the active one.
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }
+
   async function send(overrideMsg?: string) {
     const q = (overrideMsg ?? input).trim();
-    if (!q || sending) return;
+    if (!q) return;
+    // If a stream is in flight, abort it so the new prompt can take over.
+    // Ref is not nulled here — it's overwritten below, and the superseded
+    // send's finally compares identity to skip its own cleanup.
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
     setSending(true);
     setError(null);
     setSearchInfo(null);
@@ -403,6 +422,7 @@ export function ChatPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         setError("Fehler beim Senden");
@@ -501,12 +521,30 @@ export function ChatPanel({
           .then((r) => r.json())
           .then((j) => setThreads(j.threads ?? []));
       }
-    } catch {
-      setError("Verbindungsabbruch");
+    } catch (err) {
+      // User-initiated abort (stop button or new prompt over running stream) is not an error.
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError("Verbindungsabbruch");
+      }
     } finally {
-      setSending(false);
+      // Only clear when we're still the active stream — a follow-up send() may
+      // have already swapped in a new controller and kicked off another request.
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setSending(false);
+      }
     }
   }
+
+  // Make sure we don't leave a stream hanging when the panel unmounts.
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+    };
+  }, []);
 
   async function deleteCurrentThread() {
     if (!activeThreadId) return;
@@ -787,6 +825,7 @@ export function ChatPanel({
             setInput={setInput}
             sending={sending}
             onSend={send}
+            onStop={stop}
           />
         </div>
       </div>
@@ -1594,12 +1633,19 @@ function ChatInput({
   setInput,
   sending,
   onSend,
+  onStop,
 }: {
   input: string;
   setInput: (s: string) => void;
   sending: boolean;
   onSend: () => void;
+  onStop: () => void;
 }) {
+  // While a stream is running, the button stops it — unless the user has
+  // typed a new prompt, in which case sending it implicitly aborts the
+  // running stream (see send() in ChatPanel) and starts the new one.
+  const hasInput = input.trim().length > 0;
+  const buttonMode: "send" | "stop" = sending && !hasInput ? "stop" : "send";
   return (
     <footer className="px-4 pb-4 pt-3 bg-[var(--color-cream-sunken)] border-t border-[var(--border-color-soft)] shrink-0">
       <div className="relative">
@@ -1609,22 +1655,21 @@ function ChatInput({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              onSend();
+              if (hasInput) onSend();
             }
           }}
-          placeholder="frage stellen…"
+          placeholder={sending ? "neue frage stellen oder antwort stoppen…" : "frage stellen…"}
           rows={2}
-          disabled={sending}
           className="w-full bg-white border border-[var(--border-color-soft)] rounded-xl py-3 pl-4 pr-14 text-body focus:outline-none focus:border-[var(--color-near-black)]/50 resize-none"
         />
         <button
-          onClick={onSend}
-          disabled={sending || !input.trim()}
-          aria-label="senden"
-          title="senden"
+          onClick={buttonMode === "stop" ? onStop : onSend}
+          disabled={buttonMode === "send" && !hasInput}
+          aria-label={buttonMode === "stop" ? "antwort stoppen" : "senden"}
+          title={buttonMode === "stop" ? "antwort stoppen" : "senden"}
           className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/50 hover:text-[var(--color-gold)] disabled:opacity-25 disabled:hover:text-[var(--color-near-black)]/50 transition-colors"
         >
-          {sending ? <span className="text-body-sm">…</span> : <SendIcon size={18} />}
+          {buttonMode === "stop" ? <StopIcon size={14} /> : <SendIcon size={18} />}
         </button>
       </div>
     </footer>

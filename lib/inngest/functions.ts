@@ -42,9 +42,13 @@ async function postToOrchestratorThread(
   tradeShowId: string,
   content: string,
 ): Promise<void> {
+  // user_id muss mit rein: chat_messages.user_id ist NOT NULL (0010) und die
+  // RLS-Policy "chat_messages_owner_all" filtert auf user_id = auth.uid().
+  // Service-Role-Insert ohne user_id => entweder NOT-NULL-Fehler oder (frueher)
+  // unsichtbar fuer den eigentlichen Besitzer.
   const { data: thread } = await supabase
     .from("chat_threads")
-    .select("id")
+    .select("id, user_id")
     .eq("trade_show_id", tradeShowId)
     .is("exhibitor_focus", null)
     .order("last_message_at", { ascending: false })
@@ -54,11 +58,58 @@ async function postToOrchestratorThread(
   const now = new Date().toISOString();
   await supabase.from("chat_messages").insert({
     trade_show_id: tradeShowId,
+    user_id: thread.user_id,
     thread_id: thread.id,
     role: "assistant",
     content,
   });
   await supabase.from("chat_threads").update({ last_message_at: now }).eq("id", thread.id);
+}
+
+// Bulk-Short-Notification mit atomic claim. concurrency=5 + throttle bedeutet,
+// dass mehrere Worker fast gleichzeitig den letzten Aussteller abschliessen
+// koennen. Der UPDATE ... WHERE short_bulk_notified_at IS NULL gewinnt
+// atomar fuer genau einen Worker; alle anderen sehen empty.select und skippen.
+async function notifyShortBulkIfDone(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  tradeShowId: string,
+): Promise<void> {
+  const { count: pendingCount } = await supabase
+    .from("exhibitors")
+    .select("id", { count: "exact", head: true })
+    .eq("trade_show_id", tradeShowId)
+    .in("short_status", ["pending", "running"]);
+  if ((pendingCount ?? 0) > 0) return;
+
+  const { data: claimed } = await supabase
+    .from("trade_shows")
+    .update({ short_bulk_notified_at: new Date().toISOString() })
+    .eq("id", tradeShowId)
+    .is("short_bulk_notified_at", null)
+    .select("id");
+  if (!claimed || claimed.length === 0) return;
+
+  const { data: shorts } = await supabase
+    .from("exhibitor_short")
+    .select("priority_label, exhibitors!inner(trade_show_id)")
+    .eq("exhibitors.trade_show_id", tradeShowId);
+  const rows = (shorts ?? []) as Array<{ priority_label: string | null }>;
+  const total = rows.length;
+  const hoch = rows.filter((r) => r.priority_label === "hoch").length;
+  const mittel = rows.filter((r) => r.priority_label === "mittel").length;
+  const niedrig = rows.filter((r) => r.priority_label === "niedrig").length;
+  const { count: failedCount } = await supabase
+    .from("exhibitors")
+    .select("id", { count: "exact", head: true })
+    .eq("trade_show_id", tradeShowId)
+    .eq("short_status", "failed");
+  const failedSuffix = (failedCount ?? 0) > 0 ? ` ${failedCount} fehlgeschlagen.` : "";
+
+  await postToOrchestratorThread(
+    supabase,
+    tradeShowId,
+    `Short-Overview fertig: ${total} Aussteller analysiert (${hoch} hoch, ${mittel} mittel, ${niedrig} niedrig).${failedSuffix} Wenn du tiefer in einzelne Aussteller einsteigen willst, kann ich Deep-Dives starten.`,
+  );
 }
 
 async function appendStepLog(
@@ -113,6 +164,11 @@ export const crawlTradeShow = inngest.createFunction(
           level: "error",
           message: `Pipeline fehlgeschlagen: ${msg.slice(0, 500)}`,
         });
+        await postToOrchestratorThread(
+          supabase,
+          tradeShowId,
+          `Pipeline fehlgeschlagen: ${msg.slice(0, 200)}. Pruefe das Log oder starte einen neuen Versuch.`,
+        );
       }
     },
   },
@@ -417,6 +473,15 @@ export const shortOverviewBulk = inngest.createFunction(
       return { paused: true };
     }
 
+    // Notification-Flag fuer diesen Bulk-Lauf zuruecksetzen, damit
+    // notifyShortBulkIfDone am Ende den atomic claim gewinnen kann.
+    await step.run("reset-notify-flag", async () => {
+      await supabase
+        .from("trade_shows")
+        .update({ short_bulk_notified_at: null })
+        .eq("id", tradeShowId);
+    });
+
     const targets = await step.run("collect-pending", async () => {
       const { data } = await supabase
         .from("exhibitors")
@@ -474,6 +539,7 @@ export const exhibitorShort = inngest.createFunction(
       const supabase = createServiceRoleClient();
       const data = (event.data as any).event?.data ?? event.data;
       const exhibitorId = data.exhibitorId;
+      const tradeShowId = data.tradeShowId;
       if (exhibitorId) {
         await supabase
           .from("exhibitors")
@@ -485,6 +551,10 @@ export const exhibitorShort = inngest.createFunction(
           dur_ms: 0,
           ok: false,
         });
+      }
+      // Auch im Fehlerfall: koennte der letzte Aussteller im Bulk gewesen sein.
+      if (tradeShowId) {
+        await notifyShortBulkIfDone(supabase, tradeShowId);
       }
     },
   },
@@ -627,6 +697,10 @@ export const exhibitorShort = inngest.createFunction(
       });
     });
 
+    await step.run("notify-bulk-if-done", async () => {
+      await notifyShortBulkIfDone(supabase, tradeShowId);
+    });
+
     return {
       ok: true,
       priority: result.intel.priority_label,
@@ -646,11 +720,25 @@ export const exhibitorDeep = inngest.createFunction(
       const supabase = createServiceRoleClient();
       const data = (event.data as any).event?.data ?? event.data;
       const exhibitorId = data.exhibitorId;
+      const tradeShowId = data.tradeShowId;
       if (exhibitorId) {
         await supabase
           .from("exhibitors")
           .update({ deep_status: "failed", current_step: null })
           .eq("id", exhibitorId);
+      }
+      if (tradeShowId && exhibitorId) {
+        const { data: ex } = await supabase
+          .from("exhibitors")
+          .select("company_name")
+          .eq("id", exhibitorId)
+          .maybeSingle();
+        const errMsg = error instanceof Error ? error.message : String(error);
+        await postToOrchestratorThread(
+          supabase,
+          tradeShowId,
+          `Deep-Dive fuer **${ex?.company_name ?? "Aussteller"}** fehlgeschlagen: ${errMsg.slice(0, 200)}. Versuch es nochmal oder analysiere manuell.`,
+        );
       }
     },
   },
@@ -792,6 +880,17 @@ export const exhibitorDeep = inngest.createFunction(
           tokens_out: result.usage.tokens_out,
         },
       });
+    });
+
+    await step.run("notify-deep-done", async () => {
+      const fit = result.intel.isp_service_fit
+        ? ` Service-Fit: ${result.intel.isp_service_fit}.`
+        : "";
+      await postToOrchestratorThread(
+        supabase,
+        tradeShowId,
+        `Deep-Dive fuer **${exhibitor.company_name}** fertig.${fit} Du kannst die Aussteller-Seite oeffnen oder im Chat nachfragen.`,
+      );
     });
 
     return { ok: true };
@@ -1790,6 +1889,11 @@ export const crawlTradeShowListing = inngest.createFunction(
           level: "error",
           message: `Listing fehlgeschlagen: ${msg.slice(0, 500)}`,
         });
+        await postToOrchestratorThread(
+          supabase,
+          tradeShowId,
+          `Listing fehlgeschlagen: ${msg.slice(0, 200)}. Pruefe das Log oder probiere eine andere Engine.`,
+        );
       }
     },
   },
