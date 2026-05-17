@@ -293,7 +293,6 @@ async function getDiscoveryStatus(
   const { data } = await supabase
     .from("competitor_discovery_runs")
     .select("id, status, current_phase, candidates_total, candidates_kept, error_message, created_at, finished_at")
-    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -318,8 +317,7 @@ async function triggerShortAnalysis(
   const { data: found } = await supabase
     .from("competitors")
     .select("id, display_name, website")
-    .in("id", competitorIds)
-    .eq("user_id", userId);
+    .in("id", competitorIds);
 
   const valid = (found ?? []).filter((c: { website: string | null }) => c.website);
   const noWebsite = (found ?? []).filter((c: { website: string | null }) => !c.website);
@@ -376,7 +374,6 @@ async function curateCompetitors(
       .from("competitors")
       .select("display_name, status")
       .eq("id", item.id)
-      .eq("user_id", userId)
       .maybeSingle();
 
     if (!row) {
@@ -417,8 +414,7 @@ async function deleteCompetitors(
   const { data: found } = await supabase
     .from("competitors")
     .select("id, display_name")
-    .in("id", competitorIds)
-    .eq("user_id", userId);
+    .in("id", competitorIds);
 
   const valid = found ?? [];
   if (valid.length === 0) {
@@ -460,7 +456,6 @@ async function updateCompetitorIntel(
     .from("competitors")
     .select("id, display_name, current_version_id")
     .eq("id", competitorId)
-    .eq("user_id", userId)
     .maybeSingle();
 
   if (!competitor) {

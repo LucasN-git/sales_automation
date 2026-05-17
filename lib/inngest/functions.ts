@@ -1962,7 +1962,6 @@ export const competitorShortBulk = inngest.createFunction(
       const { data } = await supabase
         .from("competitors")
         .select("id")
-        .eq("user_id", userId)
         .eq("short_status", "pending");
       return (data ?? []).map((r: { id: string }) => r.id);
     });

@@ -46,7 +46,6 @@ export async function GET() {
   const { data: companies } = await supabase
     .from("companies_overview")
     .select("*")
-    .eq("user_id", user.id)
     .order("best_match_confidence", { ascending: false });
 
   if (!companies || companies.length === 0) {

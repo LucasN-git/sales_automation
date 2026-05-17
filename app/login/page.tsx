@@ -1,11 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Hairline } from "@/components/brand/Hairline";
 import { GoldDot } from "@/components/brand/GoldDot";
 
-export default function LoginPage() {
+function callbackErrorMessage(code: string | null): string | null {
+  switch (code) {
+    case "not_allowed":
+      return "diese e-mail ist nicht freigegeben. bei lucas melden, um den zugang einzurichten.";
+    case "exchange":
+      return "der magic-link ist abgelaufen oder ungueltig. bitte neuen link anfordern.";
+    case null:
+    case "":
+      return null;
+    default:
+      return "anmeldung fehlgeschlagen. bitte neuen link anfordern.";
+  }
+}
+
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const callbackError = callbackErrorMessage(searchParams.get("error"));
+
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -13,18 +30,32 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus("sending");
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin}/auth/callback`,
-      },
-    });
-    if (error) {
+    setErrorMsg("");
+
+    try {
+      const res = await fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      if (res.ok) {
+        setStatus("sent");
+        return;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
       setStatus("error");
-      setErrorMsg(error.message);
-    } else {
-      setStatus("sent");
+      if (res.status === 403 || data.error === "not_allowed") {
+        setErrorMsg("diese e-mail ist nicht freigegeben.");
+      } else if (data.error === "invalid_email") {
+        setErrorMsg("bitte eine gueltige e-mail eingeben.");
+      } else {
+        setErrorMsg(data.error || "anmeldung fehlgeschlagen.");
+      }
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "netzwerkfehler.");
     }
   }
 
@@ -39,6 +70,19 @@ export default function LoginPage() {
             ISP Power Systems, internes Tool. Login per Magic-Link.
           </p>
         </header>
+
+        {callbackError && status !== "sent" && (
+          <div
+            className="mb-6 px-4 py-3 border text-body-sm"
+            style={{
+              borderColor: "var(--color-error)",
+              color: "var(--color-error)",
+              background: "rgba(220,38,38,0.05)",
+            }}
+          >
+            {callbackError}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
@@ -70,7 +114,7 @@ export default function LoginPage() {
             </p>
           )}
           {status === "error" && (
-            <p className="text-body-sm text-[var(--color-near-black)]/65">
+            <p className="text-body-sm" style={{ color: "var(--color-error)" }}>
               fehler: {errorMsg}
             </p>
           )}
@@ -82,5 +126,13 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

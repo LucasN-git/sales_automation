@@ -48,7 +48,6 @@ export async function ensureCompany(
     const { data } = await supabase
       .from("companies")
       .select("id")
-      .eq("user_id", userId)
       .eq("domain", domain)
       .maybeSingle();
     if (data) return (data as { id: string }).id;
@@ -57,7 +56,6 @@ export async function ensureCompany(
     const { data } = await supabase
       .from("companies")
       .select("id")
-      .eq("user_id", userId)
       .eq("normalized_name", normName)
       .maybeSingle();
     if (data) return (data as { id: string }).id;
@@ -81,7 +79,6 @@ export async function ensureCompany(
     const { data } = await supabase
       .from("companies")
       .select("id")
-      .eq("user_id", userId)
       .eq("domain", domain)
       .maybeSingle();
     if (data) return (data as { id: string }).id;
@@ -90,7 +87,6 @@ export async function ensureCompany(
     const { data } = await supabase
       .from("companies")
       .select("id")
-      .eq("user_id", userId)
       .eq("normalized_name", normName)
       .maybeSingle();
     if (data) return (data as { id: string }).id;

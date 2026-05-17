@@ -179,20 +179,26 @@ export async function getSettings(
     .maybeSingle();
   if (data) return data as AppSettings;
 
-  // Initialise with defaults on first read
   const seed = {
     user_id: userId,
     prio_context: defaultPrioContext(),
     short_model: SHORT_MODEL_DEFAULT,
     deep_model: DEEP_MODEL_DEFAULT,
   };
-  const { data: created, error } = await supabase
+  const { error: upsertError } = await supabase
     .from("app_settings")
-    .insert(seed)
+    .upsert(seed, { onConflict: "user_id", ignoreDuplicates: true });
+  if (upsertError) throw new Error(`init settings failed: ${upsertError.message}`);
+
+  const { data: row, error: refetchError } = await supabase
+    .from("app_settings")
     .select("*")
+    .eq("user_id", userId)
     .single();
-  if (error) throw new Error(`init settings failed: ${error.message}`);
-  return created as AppSettings;
+  if (refetchError || !row) {
+    throw new Error(`init settings failed: ${refetchError?.message ?? "no row after upsert"}`);
+  }
+  return row as AppSettings;
 }
 
 /**

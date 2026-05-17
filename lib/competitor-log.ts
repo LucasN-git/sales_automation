@@ -118,7 +118,6 @@ export async function loadCompetitorState(
   const { data: runRow } = await supabase
     .from("competitor_discovery_runs")
     .select("id, status, current_phase, candidates_total, candidates_kept, error_message, started_at")
-    .eq("user_id", userId)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -131,8 +130,7 @@ export async function loadCompetitorState(
 
   const { data: compRows } = await supabase
     .from("competitors")
-    .select("short_status")
-    .eq("user_id", userId);
+    .select("short_status");
 
   const short_counts: Record<string, number> = {};
   for (const r of (compRows ?? []) as Array<{ short_status: string | null }>) {
@@ -151,7 +149,6 @@ export async function loadCompetitorState(
     : await supabase
         .from("competitor_discovery_log")
         .select("created_at, level, phase, message")
-        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(20);
 

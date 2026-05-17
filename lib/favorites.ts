@@ -15,7 +15,6 @@ export async function getFavoriteShows(
   const { data, error } = await supabase
     .from("trade_shows")
     .select("id, name, year, status, created_at")
-    .eq("user_id", userId)
     .eq("is_favorite", true)
     .order("created_at", { ascending: false });
   if (error) throw new Error(`getFavoriteShows: ${error.message}`);

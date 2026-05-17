@@ -18,7 +18,6 @@ export async function GET(req: Request) {
   let query = supabase
     .from("competitor_discovery_log")
     .select("id, run_id, competitor_id, level, phase, message, meta, created_at")
-    .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -33,7 +32,6 @@ export async function GET(req: Request) {
   const { data: latestRun } = await supabase
     .from("competitor_discovery_runs")
     .select("id, status, current_phase, candidates_total, candidates_kept, error_message, started_at, finished_at")
-    .eq("user_id", user.id)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();

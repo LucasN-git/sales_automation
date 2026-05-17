@@ -44,7 +44,6 @@ export async function POST(request: Request) {
     const { data: existing } = await admin
       .from("trade_shows")
       .select("id")
-      .eq("user_id", user.id)
       .eq("name", MANUAL_SHOW_NAME)
       .maybeSingle();
     if (existing) {

@@ -20,12 +20,10 @@ export async function PATCH(
 
   const { runId, resultId } = await params;
 
-  // Verify ownership via run.
   const { data: run } = await supabase
     .from("show_discovery_runs")
     .select("id")
     .eq("id", runId)
-    .eq("user_id", user.id)
     .maybeSingle();
   if (!run) return NextResponse.json({ error: "not found" }, { status: 404 });
 

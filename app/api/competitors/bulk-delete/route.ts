@@ -23,8 +23,7 @@ export async function POST(request: Request) {
   const { error, count } = await supabase
     .from("competitors")
     .delete({ count: "exact" })
-    .in("id", body.competitor_ids)
-    .eq("user_id", user.id);
+    .in("id", body.competitor_ids);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

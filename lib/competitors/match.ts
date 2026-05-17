@@ -31,7 +31,6 @@ export async function ensureCompetitor(
     const { data } = await supabase
       .from("competitors")
       .select("id")
-      .eq("user_id", userId)
       .eq("domain", domain)
       .maybeSingle();
     if (data) return { id: (data as { id: string }).id, created: false };
@@ -40,7 +39,6 @@ export async function ensureCompetitor(
     const { data } = await supabase
       .from("competitors")
       .select("id")
-      .eq("user_id", userId)
       .eq("normalized_name", normName)
       .maybeSingle();
     if (data) return { id: (data as { id: string }).id, created: false };
@@ -68,7 +66,6 @@ export async function ensureCompetitor(
     const { data } = await supabase
       .from("competitors")
       .select("id")
-      .eq("user_id", userId)
       .eq("domain", domain)
       .maybeSingle();
     if (data) return { id: (data as { id: string }).id, created: false };
@@ -77,7 +74,6 @@ export async function ensureCompetitor(
     const { data } = await supabase
       .from("competitors")
       .select("id")
-      .eq("user_id", userId)
       .eq("normalized_name", normName)
       .maybeSingle();
     if (data) return { id: (data as { id: string }).id, created: false };

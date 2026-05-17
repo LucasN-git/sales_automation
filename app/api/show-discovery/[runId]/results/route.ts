@@ -10,12 +10,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ runId: str
 
   const { runId } = await params;
 
-  // Verify run ownership.
   const { data: run } = await supabase
     .from("show_discovery_runs")
     .select("id")
     .eq("id", runId)
-    .eq("user_id", user.id)
     .maybeSingle();
   if (!run) return NextResponse.json({ error: "not found" }, { status: 404 });
 

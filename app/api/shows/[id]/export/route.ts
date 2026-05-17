@@ -48,7 +48,6 @@ export async function GET(
     .from("trade_shows")
     .select("id, name, year")
     .eq("id", showId)
-    .eq("user_id", user.id)
     .single();
 
   if (!show) {

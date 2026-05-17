@@ -89,22 +89,19 @@ export async function POST(request: Request) {
     { count: competitorCount },
     { data: recentShows },
   ] = await Promise.all([
-    supabase.from("trade_shows").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+    supabase.from("trade_shows").select("id", { count: "exact", head: true }),
     supabase
       .from("trade_shows")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
       .in("status", ["queued", "crawling"]),
-    supabase.from("companies").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+    supabase.from("companies").select("id", { count: "exact", head: true }),
     supabase
       .from("competitors")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
       .eq("status", "active"),
     supabase
       .from("trade_shows")
       .select("id, name, year, status, created_at")
-      .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(5),
   ]);
