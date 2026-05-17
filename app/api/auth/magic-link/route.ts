@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { isEmailAllowed } from "@/lib/auth-allowlist";
 
 export async function POST(request: Request) {
-  let body: { email?: unknown; redirectTo?: unknown };
+  let body: { email?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -17,22 +16,6 @@ export async function POST(request: Request) {
 
   if (!isEmailAllowed(email)) {
     return NextResponse.json({ error: "not_allowed" }, { status: 403 });
-  }
-
-  const origin = new URL(request.url).origin;
-  const emailRedirectTo =
-    typeof body.redirectTo === "string" && body.redirectTo.startsWith("/")
-      ? `${origin}${body.redirectTo}`
-      : `${origin}/auth/callback`;
-
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo },
-  });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

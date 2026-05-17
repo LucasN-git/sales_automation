@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Hairline } from "@/components/brand/Hairline";
 import { GoldDot } from "@/components/brand/GoldDot";
 
@@ -33,25 +34,38 @@ function LoginForm() {
     setErrorMsg("");
 
     try {
-      const res = await fetch("/api/auth/magic-link", {
+      const check = await fetch("/api/auth/magic-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
 
-      if (res.ok) {
-        setStatus("sent");
+      if (!check.ok) {
+        const data = (await check.json().catch(() => ({}))) as { error?: string };
+        setStatus("error");
+        if (check.status === 403 || data.error === "not_allowed") {
+          setErrorMsg("diese e-mail ist nicht freigegeben.");
+        } else if (data.error === "invalid_email") {
+          setErrorMsg("bitte eine gueltige e-mail eingeben.");
+        } else {
+          setErrorMsg(data.error || "anmeldung fehlgeschlagen.");
+        }
         return;
       }
 
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      setStatus("error");
-      if (res.status === 403 || data.error === "not_allowed") {
-        setErrorMsg("diese e-mail ist nicht freigegeben.");
-      } else if (data.error === "invalid_email") {
-        setErrorMsg("bitte eine gueltige e-mail eingeben.");
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        setStatus("error");
+        setErrorMsg(error.message);
       } else {
-        setErrorMsg(data.error || "anmeldung fehlgeschlagen.");
+        setStatus("sent");
       }
     } catch (err) {
       setStatus("error");
