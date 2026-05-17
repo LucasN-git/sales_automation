@@ -39,6 +39,16 @@ type LogEntry = {
 
 const POLL_INTERVAL_MS = 4000;
 
+async function readJsonSafe(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const text = await res.text();
+    if (!text) return null;
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 export default function ShowSearchPage() {
   const searchParams = useSearchParams();
   const view = searchParams.get("view") ?? "prozess";
@@ -61,10 +71,14 @@ export default function ShowSearchPage() {
   }, []);
 
   async function loadPastRuns() {
-    const res = await fetch("/api/show-discovery");
-    if (!res.ok) return;
-    const { runs } = await res.json();
-    setPastRuns(runs ?? []);
+    try {
+      const res = await fetch("/api/show-discovery");
+      if (!res.ok) return;
+      const json = await readJsonSafe(res);
+      setPastRuns((json?.runs as Run[]) ?? []);
+    } catch {
+      // ignore
+    }
   }
 
   // Polling while a run is active.
@@ -88,24 +102,36 @@ export default function ShowSearchPage() {
   }, [activeRunId, activeRun?.status]);
 
   async function pollRun(runId: string) {
-    const res = await fetch(`/api/show-discovery/${runId}`);
-    if (!res.ok) return;
-    const { run } = await res.json();
-    setActiveRun(run);
+    try {
+      const res = await fetch(`/api/show-discovery/${runId}`);
+      if (!res.ok) return;
+      const json = await readJsonSafe(res);
+      if (json?.run) setActiveRun(json.run as Run);
+    } catch {
+      // ignore
+    }
   }
 
   async function pollLog(runId: string) {
-    const res = await fetch(`/api/show-discovery/${runId}/log`);
-    if (!res.ok) return;
-    const { entries } = await res.json();
-    setLogEntries(entries ?? []);
+    try {
+      const res = await fetch(`/api/show-discovery/${runId}/log`);
+      if (!res.ok) return;
+      const json = await readJsonSafe(res);
+      setLogEntries((json?.entries as LogEntry[]) ?? []);
+    } catch {
+      // ignore
+    }
   }
 
   async function pollResults(runId: string) {
-    const res = await fetch(`/api/show-discovery/${runId}/results`);
-    if (!res.ok) return;
-    const { results: r } = await res.json();
-    setResults(r ?? []);
+    try {
+      const res = await fetch(`/api/show-discovery/${runId}/results`);
+      if (!res.ok) return;
+      const json = await readJsonSafe(res);
+      setResults((json?.results as ShowDiscoveryResult[]) ?? []);
+    } catch {
+      // ignore
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -117,19 +143,32 @@ export default function ShowSearchPage() {
     setResults([]);
 
     startTransition(async () => {
-      const res = await fetch("/api/show-discovery", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_prompt: prompt.trim() }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? "Suche konnte nicht gestartet werden.");
-        return;
+      try {
+        const res = await fetch("/api/show-discovery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_prompt: prompt.trim() }),
+        });
+        const json = await readJsonSafe(res);
+        if (!res.ok) {
+          const serverError = typeof json?.error === "string" ? json.error : null;
+          setError(
+            serverError ??
+              `Suche konnte nicht gestartet werden (Status ${res.status}). Vercel-Logs pruefen.`,
+          );
+          return;
+        }
+        const runId = typeof json?.runId === "string" ? json.runId : null;
+        if (!runId) {
+          setError("Server-Antwort unerwartet leer. Vercel-Logs pruefen.");
+          return;
+        }
+        setActiveRunId(runId);
+        setActiveRun({ id: runId, status: "pending", current_phase: null, user_prompt: prompt.trim(), candidates_total: null, candidates_validated: null, candidates_added: null, model: null, tokens_in: null, tokens_out: null, web_search_uses: null, firecrawl_calls: null, error_message: null, created_at: new Date().toISOString(), finished_at: null });
+        loadPastRuns();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Netzwerkfehler beim Starten der Suche.");
       }
-      setActiveRunId(json.runId);
-      setActiveRun({ id: json.runId, status: "pending", current_phase: null, user_prompt: prompt.trim(), candidates_total: null, candidates_validated: null, candidates_added: null, model: null, tokens_in: null, tokens_out: null, web_search_uses: null, firecrawl_calls: null, error_message: null, created_at: new Date().toISOString(), finished_at: null });
-      loadPastRuns();
     });
   }
 
