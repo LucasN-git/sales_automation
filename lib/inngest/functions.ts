@@ -18,6 +18,7 @@ import {
 } from "@/lib/claude";
 import { discoverSiteStrategy } from "@/lib/discovery";
 import { executeCrawlPlan } from "@/lib/strategies";
+import { isEngineApiError } from "@/lib/strategies/errors";
 import { CrawlPlanSchema, type CrawlPlan } from "@/lib/crawl-plan";
 import { tryAppendLog } from "@/lib/crawl-log";
 import { tryAppendDiscoveryLog, tryAppendCompetitorLog } from "@/lib/competitor-log";
@@ -290,22 +291,29 @@ export const crawlTradeShow = inngest.createFunction(
     });
 
     const planResult = await step.run("execute-crawl-plan", async () => {
-      return await executeCrawlPlan(plan, async (sub, meta) => {
-        await supabase
-          .from("trade_shows")
-          .update({ current_step: `listing:${plan.strategy}:${sub}` })
-          .eq("id", tradeShowId);
-        const message = (meta?.message as string | undefined) ?? sub;
-        const interesting =
-          !!meta || sub.includes("_done") || sub.includes("count_");
-        if (interesting) {
-          await tryAppendLog(supabase, tradeShowId, {
-            phase: "listing",
-            message,
-            meta: meta ?? undefined,
-          });
+      try {
+        return await executeCrawlPlan(plan, async (sub, meta) => {
+          await supabase
+            .from("trade_shows")
+            .update({ current_step: `listing:${plan.strategy}:${sub}` })
+            .eq("id", tradeShowId);
+          const message = (meta?.message as string | undefined) ?? sub;
+          const interesting =
+            !!meta || sub.includes("_done") || sub.includes("count_");
+          if (interesting) {
+            await tryAppendLog(supabase, tradeShowId, {
+              phase: "listing",
+              message,
+              meta: meta ?? undefined,
+            });
+          }
+        });
+      } catch (err) {
+        if (isEngineApiError(err)) {
+          throw new NonRetriableError(err.userMessage);
         }
-      });
+        throw err;
+      }
     });
     const listing = planResult.exhibitors;
 
@@ -1947,17 +1955,28 @@ export const crawlTradeShowListing = inngest.createFunction(
     });
 
     const planResult = await step.run("execute-crawl-plan", async () => {
-      return await executeCrawlPlan(plan, async (sub, meta) => {
-        await supabase
-          .from("trade_shows")
-          .update({ current_step: `listing:${plan.strategy}:${sub}` })
-          .eq("id", tradeShowId);
-        const message = (meta?.message as string | undefined) ?? sub;
-        const interesting = !!meta || sub.includes("_done") || sub.includes("count_");
-        if (interesting) {
-          await tryAppendLog(supabase, tradeShowId, { phase: "listing", message, meta: meta ?? undefined });
+      try {
+        return await executeCrawlPlan(plan, async (sub, meta) => {
+          await supabase
+            .from("trade_shows")
+            .update({ current_step: `listing:${plan.strategy}:${sub}` })
+            .eq("id", tradeShowId);
+          const message = (meta?.message as string | undefined) ?? sub;
+          const interesting = !!meta || sub.includes("_done") || sub.includes("count_");
+          if (interesting) {
+            await tryAppendLog(supabase, tradeShowId, { phase: "listing", message, meta: meta ?? undefined });
+          }
+        });
+      } catch (err) {
+        // High-confidence API engines (algolia_api, dimedis_api,
+        // mapyourshow_api, expofp_api) report failure via EngineApiError.
+        // Retrying won't help — surface a friendly message to the orchestrator
+        // and stop the run immediately.
+        if (isEngineApiError(err)) {
+          throw new NonRetriableError(err.userMessage);
         }
-      });
+        throw err;
+      }
     });
     const listing = planResult.exhibitors;
 

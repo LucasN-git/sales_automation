@@ -1,8 +1,9 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ISP_CATALOG } from "@/lib/isp-catalog";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { CompetitorsView, type CompetitorRow, type DiscoveryRun } from "./CompetitorsView";
 import { CompetitorLogView } from "./CompetitorLogView";
+import { HelpRequestButton } from "@/components/HelpRequestButton";
 
 export const dynamic = "force-dynamic";
 
@@ -117,18 +118,13 @@ export default async function CompetitorsPage({
   const totalCount = competitors.length;
   const suggestedCount = competitors.filter((c) => c.status === "suggested").length;
   const activeCount = competitors.filter((c) => c.status === "active").length;
+  const anyActiveRun = runs.some(
+    (r) => r.status === "pending" || r.status === "running",
+  );
 
   return (
     <>
-      <div className="mb-6 text-meta">
-        <Link
-          href="/"
-          className="hover:text-[var(--color-near-black)] transition-colors"
-        >
-          ← Sales Intelligence
-        </Link>
-      </div>
-
+      {anyActiveRun && <AutoRefresh intervalMs={6000} />}
       <header className="mb-10">
         <h1 className="text-display">
           Konkurrenten<span style={{ color: "var(--color-gold)" }}>.</span>
@@ -143,34 +139,18 @@ export default async function CompetitorsPage({
           <span className="tabular-nums">{suggestedCount} vorgeschlagen</span>
           <span className="tabular-nums">{activeCount} aktiv</span>
         </div>
-        <div className="mt-4">
-          <p className="text-body-sm text-[var(--color-near-black)]/50">
-            Discovery und Analyse werden ueber den Chat rechts gesteuert.
-          </p>
-        </div>
       </header>
 
-      {/* Tab navigation */}
-      <nav className="flex items-center gap-1 border-b border-[var(--border-color-soft)] mb-8">
-        {(
-          [
-            { key: "konkurrenten", label: "konkurrenten" },
-            { key: "log", label: "log" },
-          ] as Array<{ key: ViewParam; label: string }>
-        ).map((tab) => (
-          <Link
-            key={tab.key}
-            href={`/competitors${tab.key !== "konkurrenten" ? `?view=${tab.key}` : ""}`}
-            className={`px-4 py-2 text-ui border-b-2 -mb-px transition-colors ${
-              view === tab.key
-                ? "border-[var(--color-near-black)] text-[var(--color-near-black)]"
-                : "border-transparent text-[var(--color-near-black)]/45 hover:text-[var(--color-near-black)]/70"
-            }`}
-          >
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
+      <div className="flex items-center gap-4 flex-wrap mb-10">
+        <p className="text-body-sm text-[var(--color-near-black)]/55">
+          Discovery und Analyse werden ueber den Chat rechts gesteuert.
+        </p>
+        <HelpRequestButton
+          source="competitors"
+          label="Konkurrenten-Analyse"
+          context={`Gesamt: ${totalCount}\nVorgeschlagen: ${suggestedCount}\nAktiv: ${activeCount}\nView: ${view}`}
+        />
+      </div>
 
       {view === "log" ? (
         <CompetitorLogView runId={sp.run_id} />

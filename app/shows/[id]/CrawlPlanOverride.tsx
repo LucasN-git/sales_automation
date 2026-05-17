@@ -12,7 +12,14 @@ const STRATEGIES = [
   "single_page",
 ] as const;
 
-const ENGINES = ["algolia_api", "browserbase", "firecrawl"] as const;
+const ENGINES = [
+  "algolia_api",
+  "browserbase",
+  "firecrawl",
+  "dimedis_api",
+  "mapyourshow_api",
+  "expofp_api",
+] as const;
 
 type Strategy = (typeof STRATEGIES)[number];
 type Engine = (typeof ENGINES)[number];

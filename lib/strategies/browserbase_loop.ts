@@ -2,6 +2,7 @@ import type { LetterLoopPlanT } from "@/lib/crawl-plan";
 import type { ExhibitorListing } from "@/lib/firecrawl";
 import { withSession, acceptCookies } from "@/lib/browserbase";
 import {
+  autoScrollUntilStall,
   extractExhibitorLinksFromHtml,
   mergeBatch,
   type StrategyProgress,
@@ -49,6 +50,22 @@ export async function executeBrowserbaseLetterLoop(
         await page
           .waitForSelector(`a[href*="${detailPrefix}"]`, { timeout: 15_000 })
           .catch(() => {});
+
+        // Infinite-scroll first: many SPAs (xponential-europe et al) load
+        // additional cards only when the viewport reaches the bottom, with no
+        // show-more button at all. Plan must opt in via has_infinite_scroll.
+        if (plan.has_infinite_scroll) {
+          const max = plan.max_scrolls ?? 15;
+          const finalCount = await autoScrollUntilStall(
+            page,
+            `a[href*="${detailPrefix}"]`,
+            max,
+          );
+          await onProgress(`letter_${letter}_scroll_done`, {
+            cards_after_scroll: finalCount,
+            max_scrolls: max,
+          });
+        }
 
         // If show-more selector is set, click it until gone / stalled.
         if (plan.has_show_more && plan.show_more_selector) {

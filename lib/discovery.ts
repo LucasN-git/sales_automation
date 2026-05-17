@@ -22,7 +22,14 @@ const DISCOVERY_SYSTEM_INSTRUCTION = `You analyse trade-show exhibitor listing p
 
 You will be shown the rendered HTML and Markdown of one listing page. Submit the plan via the submit_crawl_plan tool.
 
-ENGINE SELECTION (required field "engine"):
+ENGINE SELECTION (required field "engine"). Scan top to bottom — first match wins. Platform-specific REST engines first, then generic.
+
+- "dimedis_api" — pick if you see ANY of these DIMEDIS VIS signals: a script tag like \`<script id="finder-base-config" type="application/json">…</script>\` whose JSON contains "visDomain" and "lang"; references to \`window.DIMEDIS\`; URL path matching \`/vis/v\\d+/<lang>/(directory|catalogue)\`; \`finder-frontend\` in script/CSS asset paths. DIMEDIS hosts the Koelnmesse family (xponential, anuga, drupa, photokina, IDS, idem) and many other German trade shows. One unauthenticated GET against \`{visDomain}/vis-api/vis/v2/{lang}/exhibitors\` returns the entire list. When you pick this, set strategy="single_page" and fill the \`dimedis\` hint with {vis_domain, lang} parsed from the finder-base-config JSON.
+
+- "mapyourshow_api" — pick if the listing subdomain matches \`*.mapyourshow.com\` (very strong signal). Corroborating hints: path contains \`/8_0/\`, asset URLs reference \`mys_shared/\`, inline JS mentions \`path2approot\` or \`remote-proxy.cfm\` or \`quicklists-min.js\`. MapYourShow hosts ~1000 US trade shows (InfoComm, ISE, MODEX, NADA, EXHIBITORLIVE, IWF, Display Week, OFC, NRF). The full list comes from one JSON proxy call after a session-cookie GET. When you pick this, set strategy="single_page" and fill the \`mapyourshow\` hint with {show_code, app_root}. show_code = uppercase first hostname label (e.g. "INFOCOMM26"). app_root = origin + "/8_0".
+
+- "expofp_api" — pick if the listing subdomain matches \`*.expofp.com\` (but NOT www/app/developer/help.expofp.com), or the page embeds \`packages/main/expofp.js\` plus a \`window.__fpDataVersion\` reference. ExpoFP hosts interactive floor plans; the unauthenticated \`{origin}/data/data.json\` blob carries every exhibitor with name, website, address, phone, plus booths. When you pick this, set strategy="single_page" and fill the \`expofp\` hint with {event_id = first hostname label}.
+
 - "algolia_api" — pick if you see Algolia InstantSearch hints anywhere in the HTML: \`window.__ALGOLIA__\`, \`data-app-id\`, \`aa-Input\`, classes starting with \`ais-\`, calls to \`algolia.net\`. This is fastest and cheapest (~0.10 €/show) because we hit Algolia's REST API directly.
 - "browserbase" — pick for any other React/Vue/Angular SPA where listings render client-side or "Show more" buttons need real user clicks. Costs 1–2.50 €/show but works on every modern SPA reliably. PREFER this over firecrawl whenever the page looks dynamic.
 - "firecrawl" — pick ONLY for static server-rendered HTML where a single Firecrawl scrape returns the full list. Cheapest if it works, but useless on SPAs.
@@ -47,6 +54,9 @@ CRITICAL — show_more_selector must be SPECIFIC and match ONLY the visible "loa
 - If the real button has a unique parent (e.g. inside the results grid container), use a descendant selector: ".results-grid > button.primary".
 - If unsure, prefer specificity over generality. A wrong narrow selector = no clicks; a wrong broad selector = clicks on hidden dummy buttons (much worse).
 - Consider :not() to exclude dummies: e.g. "button.primary:not(.as-link):not(.icon-button)" excludes link/icon variants.
+
+INFINITE-SCROLL DETECTION (letter_loop and show_more, engine=browserbase):
+Some SPAs lazy-load extra cards only when the viewport hits the bottom — there is NO visible "show more" button. Signals: the visible card count stays around 20-30 even when long lists are expected; HTML references \`IntersectionObserver\`, \`react-window\`, \`react-virtualized\`, or CSS classes like \`infinite-scroll\` / \`virtualized-list\`. When you see this AND pick engine="browserbase", set \`has_infinite_scroll=true\` and pick a generous \`max_scrolls\` (15-30). The executor scrolls to the bottom in a loop until the count stalls.
 
 3. "pagination" — URL-based pagination, e.g. ?page=1, ?page=2, or /page/1.
    Required fields when chosen: page_url_template (with {base} and {n} placeholders), start_page (usually 1), max_pages.
@@ -130,9 +140,16 @@ const CRAWL_PLAN_INPUT_SCHEMA = {
     },
     engine: {
       type: "string",
-      enum: ["firecrawl", "browserbase", "algolia_api"],
+      enum: [
+        "firecrawl",
+        "browserbase",
+        "algolia_api",
+        "dimedis_api",
+        "mapyourshow_api",
+        "expofp_api",
+      ],
       description:
-        "Listing engine. 'algolia_api' if Algolia InstantSearch detected (cheapest), 'browserbase' for React/SPA pages needing real clicks (most robust), 'firecrawl' only for static HTML.",
+        "Listing engine. Platform-specific REST engines (dimedis_api, mapyourshow_api, expofp_api) are fastest and require strategy='single_page'. algolia_api is cheap when Algolia is detected. browserbase for generic React/SPA pages needing real clicks (most robust). firecrawl only for static HTML.",
     },
     algolia: {
       type: ["object", "null"],
@@ -142,7 +159,43 @@ const CRAWL_PLAN_INPUT_SCHEMA = {
         filter_attribute: { type: ["string", "null"] },
       },
       description:
-        "When engine='algolia_api', any Algolia hints visible in the HTML. app_id_hint = Algolia App ID if found in script-tags or data-attributes; index_hint = the index name (e.g. 'exhibitors_prod'); filter_attribute = the facet attribute used for letter filtering (e.g. 'filterAZ'). All optional — the runtime will sniff the live algolia.net network requests too.",
+        "When engine='algolia_api', any Algolia hints visible in the HTML. app_id_hint = Algolia App ID if found in script-tags or data-attributes; index_hint = the index name (e.g. 'exhibitors_prod'); filter_attribute = the facet attribute used for letter filtering (e.g. 'filterAZ'). All optional; the runtime sniffs live algolia.net network requests too.",
+    },
+    dimedis: {
+      type: ["object", "null"],
+      properties: {
+        vis_domain: { type: "string" },
+        lang: { type: "string" },
+      },
+      description:
+        "When engine='dimedis_api', the values parsed from the <script id='finder-base-config'> JSON block in the HTML. vis_domain = the 'visDomain' field (e.g. 'https://www.xponential-europe.com'), lang = the 'lang' field (e.g. 'en' or 'de'). Both required when engine is dimedis_api.",
+    },
+    mapyourshow: {
+      type: ["object", "null"],
+      properties: {
+        show_code: { type: "string" },
+        app_root: { type: "string" },
+      },
+      description:
+        "When engine='mapyourshow_api', the values derived from the URL. show_code = the uppercase first hostname label (e.g. 'INFOCOMM26'). app_root = the origin plus '/8_0' (e.g. 'https://infocomm26.mapyourshow.com/8_0').",
+    },
+    expofp: {
+      type: ["object", "null"],
+      properties: {
+        event_id: { type: "string" },
+      },
+      description:
+        "When engine='expofp_api', the first hostname label of the listing URL (e.g. 'newyorkbuildexpo2026' for newyorkbuildexpo2026.expofp.com).",
+    },
+    has_infinite_scroll: {
+      type: "boolean",
+      description:
+        "For letter_loop and show_more with engine='browserbase'. True if the page lazy-loads more cards on scroll without a visible 'show more' button. Triggers the scroll-to-bottom loop.",
+    },
+    max_scrolls: {
+      type: "integer",
+      description:
+        "For has_infinite_scroll=true. Hard cap on scroll iterations per page/letter (default 15, max 50). The executor stops earlier when two consecutive reads return the same card count.",
     },
     hints: {
       type: "object",

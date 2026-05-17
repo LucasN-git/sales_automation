@@ -237,6 +237,8 @@ Auto-Discovery von ISP-Wettbewerbern via Claude + Web-Search (`discoverCompetito
 
 User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recherchiert Messen-Kandidaten, gibt strukturierte Liste mit Relevanz-Score (0-10), ISP-Sektor-Match, exhibitor_list_url, is_recurring zuruck. Danach Firecrawl-Validierung jeder URL (parallel, concurrency 4). Ergebnis-Actions: Kandidaten annehmen → `trade_shows` oder ablehnen.
 
+**Orchestrator-Chat (`lib/show-discovery-orchestrator.ts`, `POST /api/show-discovery/chat`):** Eigener Tool-Loop fuer Messen-Suche, scope=`show_discovery`. Threads in `chat_threads.show_discovery_run_focus` (uuid -> show_discovery_runs, seit 0035). Tool-Defs `SHOW_DISCOVERY_TOOL_DEFS`: start_discovery, cancel_discovery, resume_discovery, get_discovery_status, list_runs, list_results, add_result_to_shows, dismiss_results, update_discovery_settings. add/dismiss/system_prompt-Wechsel laufen immer ueber das Confirmation-Widget. State-Block via `loadShowDiscoveryState()` (aktiver Run, Counts, juengste Logs, Settings-Snapshot). Auf `/shows/search` bindet ein `<ChatScopeBinding scope={{ kind: 'show_discovery', focusRunId, focusName }}/>` die rechte Chat-Spalte automatisch an den aktiven Run.
+
 ---
 
 ## Datenbank-Schema
@@ -550,6 +552,7 @@ niedrig: border 1px rgba(10,10,10,0.10), text near-black(40%)
 | `POST/GET` | `/api/show-discovery` | Trigger Messen-Suche / List runs |
 | `GET` | `/api/show-discovery/[runId]/results` | List candidates |
 | `PATCH` | `/api/show-discovery/[runId]/results/[id]` | Dismiss / add to trade_shows |
+| `POST` | `/api/show-discovery/chat` | SSE-Stream, Show-Discovery-Orchestrator-Tool-Loop |
 | `GET/PATCH` | `/api/settings` | Get/update app_settings |
 | `GET/PATCH` | `/api/profile` | Get/update user_profiles |
 

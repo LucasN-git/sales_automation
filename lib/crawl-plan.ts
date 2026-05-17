@@ -18,15 +18,29 @@ const ExhibitorExtractionHints = z.object({
 
 /**
  * Listing engine. Picked by Discovery based on site characteristics:
- * - "firecrawl"   — static HTML, single-pass scrape via Firecrawl is enough.
- * - "browserbase" — SPA needing real user-clicks (React, Algolia, etc).
- *                   Per-letter Playwright loop with isTrusted=true clicks.
- * - "algolia_api" — Algolia InstantSearch detected; fast path via direct
- *                   /browse endpoint after extracting credentials in a 1×
- *                   Browserbase session.
+ * - "firecrawl"       static HTML, single-pass scrape via Firecrawl is enough.
+ * - "browserbase"     SPA needing real user-clicks (React, Algolia, etc).
+ * - "algolia_api"     Algolia InstantSearch; fast path via /browse endpoint
+ *                     after sniffing credentials in a 1x Browserbase session.
+ * - "dimedis_api"     DIMEDIS VIS platform (Koelnmesse family, xponential,
+ *                     anuga, drupa). One unauthenticated GET against
+ *                     /vis-api/vis/v2/{lang}/exhibitors returns the full list.
+ * - "mapyourshow_api" MapYourShow platform (~1000 US trade shows).
+ *                     Browserbase session sniffs the bearer-token and show
+ *                     code, then paginates the mysRest API.
+ * - "expofp_api"      ExpoFP floor-plan platform. Listing capability is
+ *                     uncertain; the engine may be stubbed depending on
+ *                     spike findings.
  */
 export const Engine = z
-  .enum(["firecrawl", "browserbase", "algolia_api"])
+  .enum([
+    "firecrawl",
+    "browserbase",
+    "algolia_api",
+    "dimedis_api",
+    "mapyourshow_api",
+    "expofp_api",
+  ])
   .default("firecrawl");
 
 const AlgoliaHints = z
@@ -37,6 +51,34 @@ const AlgoliaHints = z
   })
   .nullable()
   .optional();
+
+const DimedisHints = z
+  .object({
+    vis_domain: z.string().url(),
+    lang: z.string().min(2).max(5),
+  })
+  .nullable()
+  .optional();
+
+const MapYourShowHints = z
+  .object({
+    show_code: z.string().min(1),
+    app_root: z.string().url(),
+  })
+  .nullable()
+  .optional();
+
+const ExpoFpHints = z
+  .object({
+    event_id: z.string().min(1),
+  })
+  .nullable()
+  .optional();
+
+const ScrollFields = {
+  has_infinite_scroll: z.boolean().default(false),
+  max_scrolls: z.number().int().min(0).max(50).default(15),
+} as const;
 
 export const LetterLoopPlan = z.object({
   strategy: z.literal("letter_loop"),
@@ -60,6 +102,10 @@ export const LetterLoopPlan = z.object({
   hints: ExhibitorExtractionHints,
   engine: Engine.optional(),
   algolia: AlgoliaHints,
+  dimedis: DimedisHints,
+  mapyourshow: MapYourShowHints,
+  expofp: ExpoFpHints,
+  ...ScrollFields,
 });
 
 export const ShowMorePlan = z.object({
@@ -70,6 +116,10 @@ export const ShowMorePlan = z.object({
   hints: ExhibitorExtractionHints,
   engine: Engine.optional(),
   algolia: AlgoliaHints,
+  dimedis: DimedisHints,
+  mapyourshow: MapYourShowHints,
+  expofp: ExpoFpHints,
+  ...ScrollFields,
 });
 
 export const PaginationPlan = z.object({
@@ -85,6 +135,9 @@ export const PaginationPlan = z.object({
   hints: ExhibitorExtractionHints,
   engine: Engine.optional(),
   algolia: AlgoliaHints,
+  dimedis: DimedisHints,
+  mapyourshow: MapYourShowHints,
+  expofp: ExpoFpHints,
 });
 
 export const SinglePagePlan = z.object({
@@ -93,6 +146,9 @@ export const SinglePagePlan = z.object({
   hints: ExhibitorExtractionHints,
   engine: Engine.optional(),
   algolia: AlgoliaHints,
+  dimedis: DimedisHints,
+  mapyourshow: MapYourShowHints,
+  expofp: ExpoFpHints,
 });
 
 export const CrawlPlanSchema = z.discriminatedUnion("strategy", [

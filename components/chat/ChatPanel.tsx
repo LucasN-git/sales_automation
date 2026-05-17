@@ -28,7 +28,10 @@ type PendingConfirmation = {
     | "delete_exhibitors"
     | "add_exhibitor"
     | "delete_competitors"
-    | "create_trade_show";
+    | "create_trade_show"
+    | "add_result_to_shows"
+    | "dismiss_results"
+    | "update_discovery_settings_prompt";
   description: string;
   preview_items: string[];
   count: number;
@@ -55,11 +58,12 @@ type Thread = {
   company_name?: string | null;
   competitor_focus?: string | null;
   competitor_name?: string | null;
+  show_discovery_run_focus?: string | null;
   is_orchestrator: boolean;
   last_message_at: string;
 };
 
-type ThreadType = "orchestrator" | "show-chat" | "exhibitor" | "dashboard" | "companies" | "competitor";
+type ThreadType = "orchestrator" | "show-chat" | "exhibitor" | "dashboard" | "companies" | "competitor" | "show_discovery";
 
 function getThreadType(t: Thread): ThreadType {
   if (t.exhibitor_focus) return "exhibitor";
@@ -67,6 +71,7 @@ function getThreadType(t: Thread): ThreadType {
     return t.is_orchestrator ? "orchestrator" : "show-chat";
   }
   if (t.scope === "competitor" || t.competitor_focus) return "competitor";
+  if (t.scope === "show_discovery") return "show_discovery";
   if (t.scope === "dashboard") return "dashboard";
   return "companies";
 }
@@ -78,6 +83,7 @@ const THREAD_TYPE_LABEL: Record<ThreadType, string> = {
   dashboard: "Dashboard",
   companies: "Firmen-Chat",
   competitor: "Konkurrent",
+  show_discovery: "Messen-Suche",
 };
 
 const THREAD_TYPE_DESC: Record<ThreadType, string> = {
@@ -93,6 +99,8 @@ const THREAD_TYPE_DESC: Record<ThreadType, string> = {
     "Cross-Show Firmen-Chat. Aggregiert ueber alle Messen, kann nach Firma filtern.",
   competitor:
     "Konkurrenten-Chat. Steuert Discovery, Short-Analyse und Kuratierung.",
+  show_discovery:
+    "Messen-Suche-Orchestrator. Startet Discovery-Laeufe, kuratiert Treffer, uebernimmt Messen in die Pipeline.",
 };
 
 const MODELS = [
@@ -101,7 +109,7 @@ const MODELS = [
   { id: "claude-opus-4-7", label: "Opus" },
 ];
 
-export type ScopeKind = "dashboard" | "show" | "companies" | "competitor";
+export type ScopeKind = "dashboard" | "show" | "companies" | "competitor" | "show_discovery";
 
 export type ChatScope =
   | {
@@ -125,16 +133,30 @@ export type ChatScope =
       kind: "competitor";
       focusCompetitorId?: string | null;
       focusName?: string | null;
+    }
+  | {
+      kind: "show_discovery";
+      focusRunId?: string | null;
+      focusName?: string | null;
     };
 
 type ScopeBindings = {
   apiBase: string;
-  focusBodyKey: "exhibitor_focus" | "company_focus" | "competitor_focus" | null;
-  focusQueryKey: "exhibitor" | "company" | "competitor" | null;
+  focusBodyKey: "exhibitor_focus" | "company_focus" | "competitor_focus" | "show_discovery_run_focus" | null;
+  focusQueryKey: "exhibitor" | "company" | "competitor" | "run" | null;
   focusId: string | null;
   focusName: string | null;
   hasDeep: boolean;
-  emptyVariant: "show" | "show-focus" | "companies" | "companies-focus" | "competitor" | "competitor-focus" | "dashboard";
+  emptyVariant:
+    | "show"
+    | "show-focus"
+    | "companies"
+    | "companies-focus"
+    | "competitor"
+    | "competitor-focus"
+    | "dashboard"
+    | "show_discovery"
+    | "show_discovery-focus";
 };
 
 function bindScope(scope: ChatScope): ScopeBindings {
@@ -172,6 +194,18 @@ function bindScope(scope: ChatScope): ScopeBindings {
       focusName: scope.focusName ?? null,
       hasDeep: false,
       emptyVariant: focusId ? "companies-focus" : "companies",
+    };
+  }
+  if (scope.kind === "show_discovery") {
+    const focusId = scope.focusRunId ?? null;
+    return {
+      apiBase: "/api/show-discovery/chat",
+      focusBodyKey: "show_discovery_run_focus",
+      focusQueryKey: "run",
+      focusId,
+      focusName: scope.focusName ?? null,
+      hasDeep: false,
+      emptyVariant: focusId ? "show_discovery-focus" : "show_discovery",
     };
   }
   return {
@@ -619,6 +653,77 @@ export function ChatPanel({
           },
         ]);
         router.refresh();
+      } else if (conf.action_type === "add_result_to_shows") {
+        const resultId = conf.payload.result_id as string;
+        const runId = conf.payload.run_id as string;
+        res = await fetch(`/api/show-discovery/${runId}/results/${resultId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm: true }),
+        });
+        const j = await res.json();
+        if (res.ok && j.tradeShowId) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant" as const,
+              content: `Erledigt: Messe angelegt (${j.tradeShowId}).`,
+            },
+          ]);
+          router.refresh();
+        } else if (res.status === 409 && j.error === "already_exists") {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant" as const,
+              content: `Messe existiert bereits: ${j.showName ?? j.tradeShowId}.`,
+            },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant" as const,
+              content: `Fehler beim Anlegen: ${j.error ?? "unbekannt"}.`,
+            },
+          ]);
+        }
+      } else if (conf.action_type === "dismiss_results") {
+        const items = (conf.payload.items as Array<{ result_id: string; run_id: string }>) ?? [];
+        let ok = 0;
+        for (const it of items) {
+          const r = await fetch(`/api/show-discovery/${it.run_id}/results/${it.result_id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dismissed: true }),
+          });
+          if (r.ok) ok += 1;
+        }
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant" as const, content: `Erledigt: ${ok}/${items.length} Resultat(e) abgelehnt.` },
+        ]);
+        router.refresh();
+      } else if (conf.action_type === "update_discovery_settings_prompt") {
+        res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            show_discovery_system_prompt: conf.payload.system_prompt,
+          }),
+        });
+        if (res.ok) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant" as const, content: "Erledigt: Show-Discovery-System-Prompt aktualisiert." },
+          ]);
+        } else {
+          const j = await res.json().catch(() => ({}));
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant" as const, content: `Fehler: ${j.error ?? "settings update failed"}.` },
+          ]);
+        }
       } else if (!showId) {
         // remaining action types require showId
         return;
@@ -731,6 +836,10 @@ export function ChatPanel({
                 } else {
                   router.push(`/companies?thread=${t.id}`);
                 }
+                return;
+              }
+              if (t.scope === "show_discovery" && scope.kind !== "show_discovery") {
+                router.push(`/shows/search?thread=${t.id}`);
                 return;
               }
               if (t.scope === "dashboard" && scope.kind !== "dashboard") {
@@ -851,6 +960,14 @@ const PIPELINE_TOOL_LABELS: Record<string, string> = {
   create_trade_show: "Messe anlegen",
   start_show_discovery: "Messen-Suche",
   start_competitor_discovery: "Konkurrenten-Discovery",
+  start_discovery: "Discovery-Lauf gestartet",
+  cancel_discovery: "Lauf gestoppt",
+  resume_discovery: "Lauf neu gestartet",
+  list_runs: "Laeufe aufgelistet",
+  list_results: "Treffer aufgelistet",
+  add_result_to_shows: "Treffer zur Pipeline",
+  dismiss_results: "Treffer abgelehnt",
+  update_discovery_settings: "Settings aktualisiert",
 };
 
 const TOOLS_WITH_LOGS = new Set([
@@ -1570,11 +1687,27 @@ function EmptyState({
   variant,
   focusName,
 }: {
-  variant: "show" | "show-focus" | "companies" | "companies-focus" | "competitor" | "competitor-focus" | "dashboard";
+  variant:
+    | "show"
+    | "show-focus"
+    | "companies"
+    | "companies-focus"
+    | "competitor"
+    | "competitor-focus"
+    | "dashboard"
+    | "show_discovery"
+    | "show_discovery-focus";
   focusName: string | null;
 }) {
   let items: string[];
-  if (variant === "show-focus") {
+  if (variant === "show_discovery-focus" || variant === "show_discovery") {
+    items = [
+      "Starte eine Suche nach Maritime-Messen 2026 in Europa.",
+      "Was laeuft gerade?",
+      "Zeig die Top-5 Treffer mit Score >= 8.",
+      "Uebernimm OFFSHORE EUROPE als Messe.",
+    ];
+  } else if (variant === "show-focus") {
     items = [
       `Was macht ${focusName} genau?`,
       "Welcher ISP-Lifecycle-Schritt passt am besten?",

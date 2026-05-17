@@ -4,14 +4,30 @@ import { PhasesView } from "@/components/show-views/PhasesView";
 import { LogView } from "@/components/show-views/LogView";
 import { CostView } from "@/components/show-views/CostView";
 import { ProgressView } from "@/components/show-views/ProgressView";
-import type { CrawlPlan } from "@/lib/crawl-plan";
+import { CrawlPlanSchema, type CrawlPlan } from "@/lib/crawl-plan";
 import type {
   ExhibitorLite,
   LogEntry,
   TokenStats,
 } from "@/components/show-views/types";
+import { ShowSettingsForm } from "./settings/ShowSettingsForm";
 
-type View = "prozess" | "log" | "kosten" | "progress";
+type View = "prozess" | "log" | "kosten" | "progress" | "einstellungen";
+
+type UrlSearchStatusFull =
+  | "idle"
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "url_not_found";
+
+type UrlSearchEvidenceFull = {
+  url: string | null;
+  confidence: "low" | "medium" | "high";
+  reasoning: string;
+  searched_at?: string;
+} | null;
 
 type TokenAgg = { tin: number; tout: number; cnt: number };
 type TokenStatsRpc = { short: TokenAgg; deep: TokenAgg; chat: TokenAgg };
@@ -40,6 +56,46 @@ export async function ShowViewLoader({
   shortModel: string;
   deepModel: string;
 }) {
+  if (view === "einstellungen") {
+    const supabase = await createClient();
+    const { data: show } = await supabase
+      .from("trade_shows")
+      .select(
+        "id, name, source_url, year, chat_context, crawl_plan, expected_exhibitor_count, status, url_search_status, url_search_evidence",
+      )
+      .eq("id", showId)
+      .single();
+    if (!show) return null;
+
+    const crawlPlanParsed = show.crawl_plan
+      ? CrawlPlanSchema.safeParse(show.crawl_plan)
+      : null;
+    const crawlPlanForSettings = crawlPlanParsed?.success
+      ? crawlPlanParsed.data
+      : null;
+
+    return (
+      <ShowSettingsForm
+        showId={showId}
+        initial={{
+          name: show.name,
+          source_url: show.source_url ?? "",
+          year: show.year ?? null,
+          chat_context: show.chat_context ?? "",
+          expected_exhibitor_count: show.expected_exhibitor_count ?? null,
+          crawl_plan: crawlPlanForSettings,
+          crawl_plan_raw:
+            (show.crawl_plan as Record<string, unknown> | null) ?? null,
+          url_search_status: ((show as { url_search_status?: string })
+            .url_search_status ?? "idle") as UrlSearchStatusFull,
+          url_search_evidence:
+            (show as { url_search_evidence?: UrlSearchEvidenceFull })
+              .url_search_evidence ?? null,
+        }}
+      />
+    );
+  }
+
   if (view === "prozess") {
     return (
       <PhasesView

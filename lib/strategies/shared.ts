@@ -172,6 +172,50 @@ export async function scrapeExhibitorPage(
 }
 
 /**
+ * Auto-scroll an open Playwright page to the bottom repeatedly until the
+ * watched-element count stops growing (two consecutive identical reads). Used
+ * for SPAs that load more cards via IntersectionObserver instead of an
+ * explicit show-more button (xponential-europe being the motivating case).
+ *
+ * Returns the final card count. Uses both `window.scrollTo` (covers most
+ * IntersectionObserver setups) and `page.mouse.wheel` (covers libraries
+ * that only listen to real wheel events).
+ */
+export async function autoScrollUntilStall(
+  page: any,
+  cardSelector: string,
+  maxScrolls: number,
+  idleMs: number = 1200,
+): Promise<number> {
+  let lastCount = -1;
+  let stalled = 0;
+  let finalCount = 0;
+
+  for (let i = 0; i < maxScrolls; i++) {
+    await page
+      .evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+      .catch(() => {});
+    await page.mouse.wheel(0, 800).catch(() => {});
+    await page.waitForTimeout(idleMs);
+
+    finalCount = await page
+      .locator(cardSelector)
+      .count()
+      .catch(() => 0);
+
+    if (finalCount === lastCount) {
+      stalled++;
+      if (stalled >= 2) break;
+    } else {
+      stalled = 0;
+    }
+    lastCount = finalCount;
+  }
+
+  return finalCount;
+}
+
+/**
  * Single-call show-more scraping: one Firecrawl session, hits Show-more up to
  * `capClicks` times, snapshots once. Much more efficient than reloading the
  * page on every iteration — Firecrawl performs all clicks in the same browser

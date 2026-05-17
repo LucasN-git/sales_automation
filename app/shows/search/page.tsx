@@ -11,6 +11,8 @@ import {
 import { priceFor, priceForWebSearch, formatCost } from "@/lib/pricing";
 import { apiFetch } from "@/lib/api-fetch";
 import { useReportErrorSafe } from "@/components/ErrorReportProvider";
+import { ChatScopeBinding } from "@/components/chat/ChatScopeProvider";
+import { HelpRequestButton } from "@/components/HelpRequestButton";
 
 type Run = {
   id: string;
@@ -194,6 +196,13 @@ export default function ShowSearchPage() {
 
   return (
     <div className="max-w-3xl">
+      <ChatScopeBinding
+        scope={{
+          kind: "show_discovery",
+          focusRunId: activeRunId,
+          focusName: activeRun?.user_prompt?.slice(0, 60) ?? null,
+        }}
+      />
       <header className="mb-10">
         <h1 className="text-display">
           Messen suchen<span style={{ color: "var(--color-gold)" }}>.</span>
@@ -202,6 +211,17 @@ export default function ShowSearchPage() {
           Claude Opus 4.7 + Web-Search findet systematisch relevante Industriemessen.
           Firecrawl validiert jede URL. Du entscheidest, welche zur Messeliste hinzugefuegt werden.
         </p>
+        <div className="mt-4">
+          <HelpRequestButton
+            source="show-discovery"
+            label="Messen-Suche"
+            context={
+              activeRun
+                ? `Aktiver Run: ${activeRun.id}\nStatus: ${activeRun.status}${activeRun.current_phase ? `\nPhase: ${activeRun.current_phase}` : ""}${activeRun.error_message ? `\nFehler: ${activeRun.error_message}` : ""}`
+                : "Kein aktiver Lauf."
+            }
+          />
+        </div>
       </header>
 
       {/* Log view */}

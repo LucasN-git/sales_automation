@@ -11,7 +11,14 @@ const VALID_STRATEGIES = [
   "pagination",
   "single_page",
 ] as const;
-const VALID_ENGINES = ["algolia_api", "browserbase", "firecrawl"] as const;
+const VALID_ENGINES = [
+  "algolia_api",
+  "browserbase",
+  "firecrawl",
+  "dimedis_api",
+  "mapyourshow_api",
+  "expofp_api",
+] as const;
 
 /**
  * Manual override of the cached crawl plan and trigger a fresh listing run.

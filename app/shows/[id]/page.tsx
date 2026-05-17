@@ -26,11 +26,21 @@ import {
 import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { SettingsIcon } from "@/components/brand/Icons";
 import { RefreshButton } from "@/components/RefreshButton";
+import { HelpRequestButton } from "@/components/HelpRequestButton";
 
 export const dynamic = "force-dynamic";
 
-type ViewParam = "aussteller" | "prozess" | "log" | "kosten" | "progress";
-const VIEWS: ViewParam[] = ["aussteller", "prozess", "log", "kosten", "progress"];
+type ViewParam = "aussteller" | "prozess" | "log" | "kosten" | "progress" | "einstellungen";
+const VIEWS: ViewParam[] = ["aussteller", "prozess", "log", "kosten", "progress", "einstellungen"];
+
+const VIEW_LABELS: Record<ViewParam, string> = {
+  aussteller: "Aussteller",
+  prozess: "Prozess",
+  log: "Log",
+  kosten: "Kosten",
+  progress: "Progress",
+  einstellungen: "Einstellungen",
+};
 
 function parseView(v: string | undefined): ViewParam {
   return v && (VIEWS as string[]).includes(v) ? (v as ViewParam) : "aussteller";
@@ -110,6 +120,16 @@ export default async function ShowDetailPage({
 
   return (
     <>
+      {view !== "aussteller" && (
+        <div className="mb-6 text-meta">
+          <Link
+            href={`/shows/${id}`}
+            className="hover:text-[var(--color-near-black)] transition-colors"
+          >
+            ← zur Aussteller-Liste
+          </Link>
+        </div>
+      )}
       <header className="mb-10">
         <div className="flex items-start justify-between gap-4">
           <h1 className="text-display">
@@ -177,12 +197,17 @@ export default async function ShowDetailPage({
             excel export
           </a>
           <Link
-            href={`/shows/${id}/settings`}
+            href={`/shows/${id}?view=einstellungen`}
             className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
           >
             <SettingsIcon size={12} />
             einstellungen
           </Link>
+          <HelpRequestButton
+            source="show"
+            label={show.name}
+            context={`Show ID: ${id}\nStatus: ${show.status}${show.current_step ? `\nStep: ${show.current_step}` : ""}${show.error_message ? `\nFehler: ${show.error_message}` : ""}`}
+          />
         </div>
       </header>
 
@@ -197,6 +222,15 @@ export default async function ShowDetailPage({
             .url_search_evidence ?? null) as UrlSearchEvidence | null
         }
       />
+
+      {view !== "aussteller" && (
+        <h2 className="text-title mb-6">
+          {VIEW_LABELS[view]}
+          {!(show.status === "crawling" || shortRunning > 0) && (
+            <span style={{ color: "var(--color-gold)" }}>.</span>
+          )}
+        </h2>
+      )}
 
       {view === "aussteller" ? (
         <Suspense fallback={<AusstellerSkeleton />}>
