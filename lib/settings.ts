@@ -59,6 +59,13 @@ export type AppSettings = {
   show_discovery_system_prompt: string | null;
   show_discovery_max_web_searches: number | null;
   show_discovery_max_tokens: number | null;
+  /**
+   * User-Anleitung als Markdown. Wird NICHT in den Default-System-Prompts
+   * mitgeschickt — die Orchestrator-Chats laden sie per `read_handbook`-Tool
+   * nur dann, wenn der User Fragen zur Funktionsweise des Tools stellt.
+   * NULL = Code-Default aus HANDBOOK_DEFAULT.
+   */
+  handbook: string | null;
   updated_at: string;
 };
 
@@ -79,6 +86,144 @@ export function defaultDeepUserTemplate(): string {
 }
 export function defaultChatSystemPrompt(): string {
   return CHAT_SYSTEM_DEFAULT;
+}
+
+/**
+ * Default-Anleitung fuer das Sales-Intelligence-Tool. Wird per `read_handbook`-
+ * Tool von den Orchestrator-Chats bei Bedarf geladen. Ist im Account-Drawer
+ * vollstaendig editierbar — User kann eigene Workflows, Notizen, FAQ-Antworten
+ * hinterlegen, ohne dass der Inhalt im Default-Kontext mitlaeuft.
+ */
+export const HANDBOOK_DEFAULT = `# Anleitung — ISP Sales-Intelligence-Tool
+
+Dieses Dokument wird von den Chat-Assistenten in der App nur bei Bedarf abgerufen
+(via Tool \`read_handbook\`). Hier kannst du eintragen, was die Chats ueber das
+Tool, ueber typische Workflows und ueber dich als User wissen sollen, OHNE dass
+es jede Anfrage mitkostet.
+
+## Was dieses Tool macht
+
+Das Tool unterstuetzt den Vertrieb bei der Recherche und Bewertung von Leads.
+Du gibst die URL einer Messe oder einer Aussteller-Liste an, und die Pipeline
+holt automatisch alle Aussteller, recherchiert pro Firma das Geschaeftsfeld,
+matcht es gegen den ISP-Power-Systems-Capability-Katalog und liefert pro Lead
+einen Pitch-Hook. Zusaetzlich findet das Tool relevante Messen (Show-Discovery)
+und analysiert Wettbewerber (Konkurrenten).
+
+## Module-Uebersicht
+
+- **Dashboard** — Startseite mit Zahlen-Ueberblick und Quick-Links.
+- **Messen** — Liste aller Messen. Pro Messe gibt es Aussteller, Pipeline-Status,
+  Kosten, Logs.
+- **Aussteller (in einer Messe)** — die Firmen, die du auf der Messe gefunden
+  hast. Werden in einer Pipeline angereichert: kurze Einschaetzung (Short) und
+  ausfuehrliches Lead-Profil (Deep-Dive).
+- **Unternehmen (cross-show)** — alle Firmen aus allen Messen, dedupliziert.
+  Hier siehst du, wenn dieselbe Firma auf mehreren Messen auftritt.
+- **Konkurrenten** — Wettbewerber-Recherche. Per Web-Suche werden Kandidaten
+  vorgeschlagen, du akzeptierst oder verwirfst.
+- **Messen suchen** — entdeckt neue Messen via Web-Suche. Liefert Kandidaten
+  mit Relevanz-Score und Aussteller-Listen-URL.
+- **Kosten** — wie viel Token und Web-Suche pro Messe / Konkurrenten / Discovery.
+
+## Pipeline-Phasen pro Messe
+
+1. **Discovery** — kurze Voranalyse der Aussteller-Listen-URL. Entscheidet, wie
+   gescraped werden soll.
+2. **Listing** — alle Aussteller werden eingelesen.
+3. **Profile-Enrich** — falls die Messe pro Aussteller eine Detail-Seite hat,
+   wird die Website automatisch gefunden.
+4. **URL-Search** — fuer Aussteller ohne Website wird via Web-Suche die offizielle
+   Website + LinkedIn gesucht.
+5. **Short-Overview** — pro Aussteller wird die Website kurz analysiert. Ergebnis:
+   one_liner, Prio (hoch/mittel/niedrig), Match-Confidence, Sektoren.
+6. **Deep-Dive** — nur auf Anfrage. Liefert business_summary, decision_makers,
+   recent_news, technical_pain_points, opening_questions.
+
+## Status-Werte
+
+**Messe (trade_shows.status):**
+- \`queued\` — wartet auf Start
+- \`crawling\` — laeuft gerade
+- \`ready\` — fertig
+- \`partial\` — weniger Aussteller als erwartet gefunden
+- \`paused\` — pausiert (du hast \`pause_pipeline\` getriggert)
+- \`failed\` — Fehler, siehe Log-Tab
+
+**Aussteller-Short (exhibitors.short_status):**
+- \`pending\` — noch nicht gestartet
+- \`running\` — laeuft
+- \`done\` — Short-Analyse vorhanden
+- \`failed\` — Fehler beim Scrapen oder bei der LLM-Analyse
+- \`url_not_found\` — keine Website gefunden, Short nicht moeglich
+
+**Aussteller-Deep (exhibitors.deep_status):** \`pending\` → \`running\` → \`done\`/\`failed\`.
+
+**Aussteller-URL-Search (exhibitors.url_search_status):**
+- \`skipped\` — hatte schon eine Website aus dem Listing
+- \`pending\`/\`running\`/\`done\` — Web-Suche laeuft/lief
+- \`url_not_found\` — auch via Web-Suche keine Website gefunden
+- \`failed\` — Web-Suche fehlgeschlagen, Short laeuft trotzdem ohne Website
+
+## Typische Workflows
+
+**Neue Messe anlegen:** Im Messen-Modul "Messe hinzufuegen" → URL der Aussteller-
+Liste angeben → Discovery laeuft automatisch. Danach im Chat \`trigger_listing\`
+oder einfach "alle Aussteller einlesen" sagen.
+
+**Aussteller bewerten:** Wenn das Listing fertig ist, im Chat sagen "Short-Overview
+fuer alle starten". Der Vorgang dauert je nach Anzahl 10-50 Minuten und kostet
+ein paar Euro. Danach kannst du nach Prio "hoch" filtern.
+
+**Deep-Dive fuer einen Lead:** Auf einen Aussteller klicken, im Chat "Deep-Dive
+starten". Dauert ~30 Sekunden, kostet ~0.10-0.20 EUR. Liefert Gespraechs-
+Munition fuer den ersten Call.
+
+**Konkurrent recherchieren:** Im Konkurrenten-Modul "Discovery starten". Web-Suche
+laeuft ~1-2 Minuten. Kandidaten erscheinen als "suggested", du musst sie
+explizit als "active" markieren.
+
+**Neue Messen finden:** Im Messen-Suchen-Modul Prompt eingeben, z.B. "Defense-
+Messen 2026 in Europa". Web-Suche dauert ~1-2 Minuten, Kandidaten erscheinen
+mit Relevanz-Score.
+
+## Kosten — wo entsteht was
+
+- **Short-Overview** (Haiku 4.5): ~0.02 EUR pro Aussteller. Bei 1000 Ausstellern: ~20 EUR.
+- **Deep-Dive** (Sonnet 4.6): ~0.10-0.20 EUR pro Lead.
+- **Konkurrenten-Discovery** (Web-Suche): ~0.15-0.30 EUR pro Lauf.
+- **Messen-Suche** (Opus + Web-Suche): ~0.20 EUR pro Lauf.
+- **Chat selbst**: typisch < 0.05 EUR pro Nachricht.
+
+Alle Kosten siehst du im Kosten-Tab (pro Messe) und unter /costs (global).
+
+## FAQ
+
+**Warum ist mein Aussteller \`url_not_found\`?**
+Weder das Listing noch die Web-Suche haben eine Website gefunden. Manchmal sind
+das nur kleine Aussteller ohne eigene Online-Praesenz. Du kannst die Website
+manuell im Detail-Editor eintragen, dann den Chat "Short neu rechnen" lassen.
+
+**Wieso pausiert die Pipeline?**
+Entweder du hast \`pause_pipeline\` getriggert (im Chat oder UI), oder ein Rate-
+Limit wurde erreicht. Ein \`resume_pipeline\` startet die naechste offene Phase.
+
+**Wann sollte ich Deep-Dive triggern?**
+Nur fuer Aussteller mit Prio "hoch" (oder ggf. "mittel"). Deep-Dive ist 5-10x
+teurer als Short. Auf 1000 Ausstellern alle Deep-Dives zu rechnen waere
+prohibitiv.
+
+**Was passiert, wenn ich eine Messe neu starte?**
+\`restart_pipeline\` loescht ALLE Aussteller dieser Messe und startet das
+Listing neu. Verwende es nur, wenn die Aussteller-Liste sich grundlegend
+geaendert hat. Sonst reicht \`re-listing\` (im Toolbar).
+
+**Wieso sehe ich die gleiche Firma auf mehreren Messen?**
+Das ist Absicht — Aussteller leben pro Messe, Companies sind cross-show
+dedupliziert. Im Unternehmen-Modul siehst du die zusammengefasste Sicht.`;
+
+export function defaultHandbook(): string {
+  return HANDBOOK_DEFAULT;
 }
 
 export const PARAM_DEFAULTS = {
@@ -227,6 +372,18 @@ export async function updatePrioContext(
     .update({ prio_context: prioContext })
     .eq("user_id", userId);
   if (error) throw new Error(`update prio_context: ${error.message}`);
+}
+
+export async function updateHandbook(
+  supabase: SupabaseClient,
+  userId: string,
+  handbook: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("app_settings")
+    .update({ handbook })
+    .eq("user_id", userId);
+  if (error) throw new Error(`update handbook: ${error.message}`);
 }
 
 export async function updateModels(
