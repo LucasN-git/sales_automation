@@ -400,7 +400,10 @@ export async function POST(
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: tu.id,
-                content: result.summary,
+                content:
+                  typeof result.detail?.handbook === "string"
+                    ? (result.detail.handbook as string)
+                    : result.summary,
               });
             } else if (tu.name === "update_exhibitor_intel" && threadFocus) {
               // Client tool — execute server-side and acknowledge

@@ -4,7 +4,7 @@ import { discoverSiteStrategy } from "@/lib/discovery";
 import { CrawlPlanSchema } from "@/lib/crawl-plan";
 import { tryAppendLog, loadCrawlState } from "@/lib/crawl-log";
 import { priceFor } from "@/lib/pricing";
-import { SHORT_MODEL_DEFAULT } from "@/lib/settings";
+import { SHORT_MODEL_DEFAULT, getSettings, effectiveHandbook } from "@/lib/settings";
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -65,7 +65,11 @@ Danach typischerweise:
 1. **run_discovery** — neuer Plan auf der neuen URL
 2. **trigger_listing** — Aussteller mit dem neuen Plan holen
 
-Kein Bestaetungs-Widget noetig, direkt ausfuehren. Aber: wenn die Messe bereits Aussteller hat, vorher kurz anmerken dass der bisherige Plan und ggf. nicht-passende Aussteller-Daten verworfen werden sollten. Schlage delete_exhibitors vor falls die alten Aussteller zur alten URL gehoeren.`;
+Kein Bestaetungs-Widget noetig, direkt ausfuehren. Aber: wenn die Messe bereits Aussteller hat, vorher kurz anmerken dass der bisherige Plan und ggf. nicht-passende Aussteller-Daten verworfen werden sollten. Schlage delete_exhibitors vor falls die alten Aussteller zur alten URL gehoeren.
+
+## Funktionsweise des Tools — read_handbook
+
+Wenn der User Fragen zur Funktionsweise des Tools, zur Bedeutung von Status-Werten, zu Modulen (Companies, Konkurrenten, Show-Discovery, Kosten), zu typischen Workflows oder allgemein "wie funktioniert das hier" stellt, rufe **read_handbook** auf. Das Tool liefert die vollstaendige Anleitung als Markdown. Nutze es nur bei Funktions-Fragen, NICHT fuer Status-Abfragen zur aktuellen Messe oder zu einzelnen Ausstellern — diese Infos hast du bereits im Kontext.`;
 
 // ---------------------------------------------------------------------------
 // Tool input types
@@ -238,6 +242,16 @@ export const ORCHESTRATOR_TOOL_DEFS = [
       required: ["url"],
     },
   },
+  {
+    name: "read_handbook",
+    description:
+      "Liest die Bedienungs-Anleitung fuer das ISP Sales-Intelligence-Tool. Enthaelt eine Uebersicht ueber Pipeline-Phasen, Status-Werte, Module (Messen, Aussteller, Companies, Konkurrenten, Show-Discovery), typische Workflows und FAQ. Rufe dieses Tool auf wenn der User Fragen zur Funktionsweise des Tools, zur Bedeutung von Status, oder zu typischen Workflows stellt — also alles, was du nicht aus dem aktiven Kontext (Messe, Aussteller, Pipeline-State) ableiten kannst. Keine Argumente. Gibt die komplette Anleitung als Markdown zurueck.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ] as const;
 
 export const ORCHESTRATOR_TOOL_NAMES = new Set(ORCHESTRATOR_TOOL_DEFS.map((t) => t.name));
@@ -365,6 +379,14 @@ export async function executePipelineTool(
       const suffix = valid.length > 5 ? ` + ${valid.length - 5} weitere` : "";
       return {
         summary: `Short-Overview neu gestartet fuer ${valid.length} Aussteller: ${names}${suffix}. Laeuft im Hintergrund.`,
+      };
+    }
+    case "read_handbook": {
+      const settings = await getSettings(supabase, userId);
+      const handbook = effectiveHandbook(settings);
+      return {
+        summary: `Anleitung geladen (${handbook.length} Zeichen).`,
+        detail: { handbook },
       };
     }
     default:

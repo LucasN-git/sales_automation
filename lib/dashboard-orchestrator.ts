@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest/client";
 import { CompetitorDiscoveryRequestSchema } from "@/lib/competitors/schemas";
+import { getSettings, effectiveHandbook } from "@/lib/settings";
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -35,7 +36,11 @@ Triggert einen Konkurrenten-Discovery-Lauf (Web-Search). Optionale Filter: secto
 - Sprache: Deutsch
 - **Keine Em-Dashes (—):** Verwende Komma, Punkt oder Klammer.
 - **Ton:** Sachlich, direkt, keine Superlative. Kurze Saetze.
-- Wenn der User vage bleibt ("starte was"), frag nach was er konkret will.`;
+- Wenn der User vage bleibt ("starte was"), frag nach was er konkret will.
+
+## Funktionsweise des Tools — read_handbook
+
+Wenn der User Fragen zur Funktionsweise des Tools, zu Modulen, Pipeline-Phasen, Status-Werten oder typischen Workflows stellt ("wie funktioniert das hier?", "was bedeutet Status X?", "wie gehe ich beim Auswerten vor?"), rufe **read_handbook** auf. Das liefert die User-Anleitung als Markdown. Nutze es nur bei Funktions-Fragen, nicht fuer Statistiken (die zaehlst du aus dem Dashboard-Kontext).`;
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -100,6 +105,16 @@ export const DASHBOARD_TOOL_DEFS = [
       required: [],
     },
   },
+  {
+    name: "read_handbook",
+    description:
+      "Liest die Bedienungs-Anleitung fuer das ISP Sales-Intelligence-Tool. Enthaelt eine Uebersicht ueber Pipeline-Phasen, Status-Werte, Module (Messen, Aussteller, Companies, Konkurrenten, Show-Discovery), typische Workflows und FAQ. Rufe dieses Tool auf wenn der User Fragen zur Funktionsweise des Tools oder zu typischen Workflows stellt. Keine Argumente. Gibt die komplette Anleitung als Markdown zurueck.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ] as const;
 
 export const DASHBOARD_TOOL_NAMES: Set<string> = new Set(
@@ -115,7 +130,8 @@ export type DashboardToolResult = { summary: string; detail?: Record<string, unk
 export type DashboardToolName =
   | "create_trade_show"
   | "start_show_discovery"
-  | "start_competitor_discovery";
+  | "start_competitor_discovery"
+  | "read_handbook";
 
 export async function executeDashboardTool(
   toolName: string,
@@ -224,6 +240,15 @@ export async function executeDashboardTool(
       return {
         summary: `Konkurrenten-Discovery gestartet${filterNote ? ` (${filterNote})` : ""}. Laeuft im Hintergrund (~10-15 Min). Kandidaten erscheinen unter /competitors als suggested.`,
         detail: { run_id: (run as { id: string }).id },
+      };
+    }
+
+    case "read_handbook": {
+      const settings = await getSettings(supabase, userId);
+      const handbook = effectiveHandbook(settings);
+      return {
+        summary: `Anleitung geladen (${handbook.length} Zeichen).`,
+        detail: { handbook },
       };
     }
 

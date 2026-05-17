@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { getSettings } from "@/lib/settings";
+import { getSettings, effectiveHandbook } from "@/lib/settings";
 import {
   chatStream,
   type ChatTurn,
@@ -70,6 +70,16 @@ const SEARCH_COMPANIES_TOOL: ClientTool = {
   },
 };
 
+const READ_HANDBOOK_TOOL: ClientTool = {
+  name: "read_handbook",
+  description:
+    "Liest die Bedienungs-Anleitung fuer das ISP Sales-Intelligence-Tool. Enthaelt eine Uebersicht ueber Pipeline-Phasen, Status-Werte, Module (Messen, Aussteller, Companies, Konkurrenten, Show-Discovery), typische Workflows und FAQ. Rufe dieses Tool auf wenn der User Fragen zur Funktionsweise des Tools oder zu typischen Workflows stellt — also alles, was du nicht aus dem Firmen-Directory beantworten kannst. Keine Argumente.",
+  input_schema: {
+    type: "object",
+    properties: {},
+  },
+};
+
 const COMPANIES_CHAT_GUIDANCE = `# Datenquellen
 
 Du hast den vollstaendigen **Firmen-Directory-Block** im System-Prompt. Er
@@ -88,7 +98,15 @@ Das Tool **search_companies** ist Fallback fuer Substring-Suche im Namen, wenn
 der User einen Namen nennt, den du im Directory nicht direkt findest (Tippfehler,
 Subsidiary). Bei Aggregaten ueber Prio/Sektor/Confidence IMMER das Directory.
 
-Bei Empfehlungen kurz ISP-Sektor/Lifecycle begruenden. Bullets oder kurze Tabelle.`;
+Bei Empfehlungen kurz ISP-Sektor/Lifecycle begruenden. Bullets oder kurze Tabelle.
+
+# Funktionsweise des Tools — read_handbook
+
+Wenn der User Fragen zur Funktionsweise des gesamten Sales-Tools stellt
+("wie funktioniert das hier?", "was bedeutet Status X?", "wie gehe ich beim
+Auswerten vor?"), rufe **read_handbook** auf. Das liefert die User-Anleitung
+als Markdown. Nutze es nur bei Funktions-Fragen, nicht fuer Firmen-Daten — die
+hast du im Directory.`;
 
 // Supabase types nested relations as arrays even when the FK is 1:1, so we
 // allow both shapes here and pickSingle them later.
@@ -288,6 +306,10 @@ export async function POST(request: Request) {
   // Tool-execution closure: runs server-side with the user's auth client,
   // so RLS automatically scopes results to this user's companies.
   async function executeClientTool(name: string, args: Record<string, unknown>) {
+    if (name === "read_handbook") {
+      const handbook = effectiveHandbook(settings);
+      return { handbook };
+    }
     if (name !== "search_companies") {
       return { error: `unknown tool: ${name}` };
     }
@@ -350,7 +372,7 @@ export async function POST(request: Request) {
           systemPrompt: settings.chat_system_prompt,
           maxTokens: settings.chat_max_tokens,
           webSearchMaxUses: settings.chat_web_search_max_uses,
-          clientTools: [SEARCH_COMPANIES_TOOL],
+          clientTools: [SEARCH_COMPANIES_TOOL, READ_HANDBOOK_TOOL],
           executeClientTool,
         });
         for await (const ev of gen) {

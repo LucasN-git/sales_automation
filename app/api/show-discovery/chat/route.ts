@@ -369,7 +369,10 @@ export async function POST(request: Request) {
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: tu.id,
-                content: result.summary,
+                content:
+                  typeof result.detail?.handbook === "string"
+                    ? (result.detail.handbook as string)
+                    : result.summary,
               });
             }
           }

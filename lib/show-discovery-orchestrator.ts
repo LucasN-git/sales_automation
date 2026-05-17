@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest/client";
 import { tryAppendShowDiscoveryLog } from "@/lib/show-discovery-log";
+import { getSettings, effectiveHandbook } from "@/lib/settings";
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -61,7 +62,11 @@ resume_discovery(run_id?) → cancelled/failed Lauf neu starten (gleicher Prompt
 
 ## Wenn du auf einem fokussierten Lauf bist
 
-Wenn show_discovery_run_focus gesetzt ist, beziehen sich "dieser Lauf", "die Ergebnisse" auf diesen konkreten Run. Default-run_id fuer alle Tools ist dann der fokussierte Run.`;
+Wenn show_discovery_run_focus gesetzt ist, beziehen sich "dieser Lauf", "die Ergebnisse" auf diesen konkreten Run. Default-run_id fuer alle Tools ist dann der fokussierte Run.
+
+## Funktionsweise des Tools — read_handbook
+
+Wenn der User Fragen zur Funktionsweise des gesamten Sales-Tools, zu Modulen ausserhalb der Messen-Suche (Aussteller, Companies, Konkurrenten), zu Status-Werten oder zu typischen Workflows stellt, rufe **read_handbook** auf. Das liefert die User-Anleitung als Markdown. Nutze es nur bei Funktions-Fragen, nicht fuer Run- oder Result-spezifische Daten — die hast du im Kontext.`;
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -220,6 +225,16 @@ export const SHOW_DISCOVERY_TOOL_DEFS = [
       required: [],
     },
   },
+  {
+    name: "read_handbook",
+    description:
+      "Liest die Bedienungs-Anleitung fuer das ISP Sales-Intelligence-Tool. Enthaelt eine Uebersicht ueber Pipeline-Phasen, Status-Werte, Module (Messen, Aussteller, Companies, Konkurrenten, Show-Discovery), typische Workflows und FAQ. Rufe dieses Tool auf wenn der User Fragen zur Funktionsweise des Tools oder zu typischen Workflows stellt — also alles, was du nicht aus dem aktiven Kontext (Discovery-Runs, Results) ableiten kannst. Keine Argumente. Gibt die komplette Anleitung als Markdown zurueck.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ] as const;
 
 export const SHOW_DISCOVERY_TOOL_NAMES = new Set(SHOW_DISCOVERY_TOOL_DEFS.map((t) => t.name));
@@ -288,6 +303,14 @@ export async function executeShowDiscoveryTool(
       );
     case "update_discovery_settings":
       return updateDiscoverySettings(input as UpdateSettingsInput, userId, supabase);
+    case "read_handbook": {
+      const settings = await getSettings(supabase, userId);
+      const handbook = effectiveHandbook(settings);
+      return {
+        summary: `Anleitung geladen (${handbook.length} Zeichen).`,
+        detail: { handbook },
+      };
+    }
     default:
       return { summary: `Unbekanntes Tool: ${toolName}` };
   }

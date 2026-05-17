@@ -10,6 +10,7 @@ import { MarkdownEditor } from "@/components/MarkdownEditor";
 import {
   PARAM_DEFAULTS,
   PARAM_BOUNDS,
+  defaultHandbook,
   type AppSettings,
 } from "@/lib/settings";
 import type { UserProfile } from "@/lib/profile";
@@ -20,7 +21,7 @@ const DEEP_MODEL_OPTIONS = ["claude-sonnet-4-6", "claude-opus-4-7"];
 const SHARED_PLACEHOLDERS = ["{{company_name}}", "{{profile_block}}", "{{scraped_content}}"];
 const DEEP_PLACEHOLDERS = [...SHARED_PLACEHOLDERS, "{{short_intel}}"];
 
-type Tab = "profile" | "context" | "short" | "deep" | "chat" | "models" | "messen";
+type Tab = "profile" | "context" | "anleitung" | "short" | "deep" | "chat" | "models" | "messen";
 
 type ParamFieldKey = keyof typeof PARAM_DEFAULTS;
 
@@ -84,6 +85,9 @@ export function AccountDrawer({
           <DrawerTab active={tab === "context"} onClick={() => setTab("context")}>
             prio-kontext
           </DrawerTab>
+          <DrawerTab active={tab === "anleitung"} onClick={() => setTab("anleitung")}>
+            anleitung
+          </DrawerTab>
           <DrawerTab active={tab === "short"} onClick={() => setTab("short")}>
             short
           </DrawerTab>
@@ -104,6 +108,7 @@ export function AccountDrawer({
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {tab === "profile" && <ProfileTab profile={profile} />}
           {tab === "context" && <ContextTab settings={settings} />}
+          {tab === "anleitung" && <HandbookTab settings={settings} />}
           {tab === "short" && <PromptTab tier="short" settings={settings} />}
           {tab === "deep" && <PromptTab tier="deep" settings={settings} />}
           {tab === "chat" && <ChatTab settings={settings} />}
@@ -278,6 +283,96 @@ function ContextTab({ settings }: { settings: AppSettings }) {
           default wiederherstellen
         </button>
         {savedAt && <span className="text-meta">gespeichert um {savedAt}</span>}
+        {error && <span className="text-body-sm text-[var(--color-near-black)]/70">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function HandbookTab({ settings }: { settings: AppSettings }) {
+  // Wenn nichts gespeichert ist, zeigen wir den Code-Default im Editor an, damit
+  // der User sofort sehen kann was die Chats wissen wuerden. Beim Speichern
+  // landet der Text in der DB; "Default wiederherstellen" schreibt den
+  // aktuellen Code-Default rein (ueberschreibt User-Edits).
+  const [handbook, setHandbook] = useState<string>(
+    settings.handbook ?? defaultHandbook(),
+  );
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const isPersisted = settings.handbook !== null;
+  const dirty = isPersisted
+    ? handbook !== settings.handbook
+    : handbook !== defaultHandbook();
+
+  async function save(patch: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error ?? "Speichern fehlgeschlagen");
+      return null;
+    }
+    const data = (await res.json()) as AppSettings;
+    setSavedAt(new Date().toLocaleTimeString("de-DE"));
+    return data;
+  }
+
+  async function handleSave() {
+    const trimmed = handbook.trim();
+    const fresh = await save({ handbook: trimmed.length === 0 ? null : trimmed });
+    if (fresh) setHandbook(fresh.handbook ?? defaultHandbook());
+  }
+
+  async function handleReset() {
+    if (!confirm("Anleitung auf den Code-Default zuruecksetzen? Aktuelle Aenderungen gehen verloren.")) return;
+    const fresh = await save({ reset_field: "handbook" });
+    if (fresh) setHandbook(fresh.handbook ?? defaultHandbook());
+  }
+
+  return (
+    <div className="space-y-5">
+      <p className="text-meta">
+        Bedienungs-Anleitung fuer das Tool. Die Chat-Assistenten laden diesen
+        Text per `read_handbook`-Tool nur auf Bedarf (z.B. wenn du fragst &quot;wie
+        funktioniert X?&quot;), nicht in jeder Anfrage. Du kannst eigene Workflows
+        und Notizen ergaenzen.
+      </p>
+      <MarkdownEditor
+        value={handbook}
+        onChange={setHandbook}
+        rows={24}
+        ariaLabel="Anleitung"
+      />
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={handleSave}
+          disabled={busy || !dirty}
+          className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
+        >
+          <span>{busy ? "speichere" : "speichern"}</span>
+          <GoldDot size={6} />
+        </button>
+        <button
+          onClick={handleReset}
+          disabled={busy}
+          className="text-ui-sm px-3 py-1 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
+        >
+          default wiederherstellen
+        </button>
+        {savedAt && <span className="text-meta">gespeichert um {savedAt}</span>}
+        {!isPersisted && !savedAt && (
+          <span className="text-meta">
+            zeigt aktuell den Code-Default (noch nichts gespeichert).
+          </span>
+        )}
         {error && <span className="text-body-sm text-[var(--color-near-black)]/70">{error}</span>}
       </div>
     </div>

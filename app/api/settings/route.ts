@@ -7,12 +7,14 @@ import {
   updateModels,
   updatePrompts,
   updateParams,
+  updateHandbook,
   defaultPrioContext,
   defaultShortSystemPrompt,
   defaultShortUserTemplate,
   defaultDeepSystemPrompt,
   defaultDeepUserTemplate,
   defaultChatSystemPrompt,
+  defaultHandbook,
   PARAM_DEFAULTS,
   PARAM_BOUNDS,
 } from "@/lib/settings";
@@ -37,6 +39,7 @@ const PromptResetField = z.enum([
   "deep_user_template",
   "chat_system_prompt",
   "show_discovery_system_prompt",
+  "handbook",
   "short_max_tokens",
   "short_max_input_chars",
   "deep_max_tokens",
@@ -55,6 +58,7 @@ const PutBody = z.object({
   deep_user_template: z.string().max(20_000).nullable().optional(),
   chat_system_prompt: z.string().max(20_000).nullable().optional(),
   show_discovery_system_prompt: z.string().max(20_000).nullable().optional(),
+  handbook: z.string().max(30_000).nullable().optional(),
   short_max_tokens: z.number().int().min(100).max(8000).nullable().optional(),
   short_max_input_chars: z.number().int().min(500).max(200_000).nullable().optional(),
   deep_max_tokens: z.number().int().min(200).max(16000).nullable().optional(),
@@ -90,6 +94,12 @@ export async function PUT(request: Request) {
     await updatePrioContext(supabase, user.id, defaultPrioContext());
   } else if (body.prio_context !== undefined) {
     await updatePrioContext(supabase, user.id, body.prio_context);
+  }
+
+  if (body.reset_field === "handbook") {
+    await updateHandbook(supabase, user.id, defaultHandbook());
+  } else if (body.handbook !== undefined) {
+    await updateHandbook(supabase, user.id, body.handbook);
   }
 
   if (body.short_model || body.deep_model) {

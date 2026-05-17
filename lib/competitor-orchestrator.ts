@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest/client";
 import { priceForWebSearch } from "@/lib/pricing";
+import { getSettings, effectiveHandbook } from "@/lib/settings";
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -49,7 +50,11 @@ delete_competitors(ids) → immer Bestaetungs-Widget
 
 ## Wenn du auf der Detail-Seite eines Konkurrenten bist
 
-Wenn competitor_focus gesetzt ist, beziehen sich "analysiere", "aktualisiere", "was weisst du" auf diesen Konkurrenten. Nutze trigger_short_analysis fuer eine neue Website-Analyse.`;
+Wenn competitor_focus gesetzt ist, beziehen sich "analysiere", "aktualisiere", "was weisst du" auf diesen Konkurrenten. Nutze trigger_short_analysis fuer eine neue Website-Analyse.
+
+## Funktionsweise des Tools — read_handbook
+
+Wenn der User Fragen zur Funktionsweise des gesamten Sales-Tools, zu Modulen ausserhalb des Konkurrenten-Bereichs (Messen, Aussteller, Show-Discovery), zu Status-Werten oder zu typischen Workflows stellt, rufe **read_handbook** auf. Das liefert die User-Anleitung als Markdown. Nutze es nur bei Funktions-Fragen, nicht fuer Konkurrenten-spezifische Daten — die hast du im Kontext.`;
 
 // ---------------------------------------------------------------------------
 // Tool input types
@@ -180,6 +185,16 @@ export const COMPETITOR_TOOL_DEFS = [
       required: ["competitor_id", "field", "value"],
     },
   },
+  {
+    name: "read_handbook",
+    description:
+      "Liest die Bedienungs-Anleitung fuer das ISP Sales-Intelligence-Tool. Enthaelt eine Uebersicht ueber Pipeline-Phasen, Status-Werte, Module (Messen, Aussteller, Companies, Konkurrenten, Show-Discovery), typische Workflows und FAQ. Rufe dieses Tool auf wenn der User Fragen zur Funktionsweise des Tools oder zu typischen Workflows stellt — also alles, was du nicht aus dem aktiven Kontext (Konkurrenten, aktuelle Discovery-Runs) ableiten kannst. Keine Argumente. Gibt die komplette Anleitung als Markdown zurueck.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ] as const;
 
 export const COMPETITOR_TOOL_NAMES = new Set(COMPETITOR_TOOL_DEFS.map((t) => t.name));
@@ -220,6 +235,14 @@ export async function executeCompetitorTool(
       };
       if (!competitor_id || !field) return { summary: "update_competitor_intel: competitor_id und field erforderlich." };
       return updateCompetitorIntel(competitor_id, field, value, userId, supabase);
+    }
+    case "read_handbook": {
+      const settings = await getSettings(supabase, userId);
+      const handbook = effectiveHandbook(settings);
+      return {
+        summary: `Anleitung geladen (${handbook.length} Zeichen).`,
+        detail: { handbook },
+      };
     }
     default:
       return { summary: `Unbekanntes Tool: ${toolName}` };

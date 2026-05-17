@@ -479,3 +479,13 @@ export function effectiveShowDiscovery(s: AppSettings) {
     max_web_searches: s.show_discovery_max_web_searches ?? SHOW_DISCOVERY_MAX_WEB_SEARCHES_DEFAULT,
   };
 }
+
+/**
+ * Effektives Handbuch: User-Override aus app_settings, sonst Code-Default.
+ * Wird vom `read_handbook`-Tool in allen Orchestratoren genutzt — der Inhalt
+ * landet ausschliesslich als Tool-Response im Chat, nie im Default-System-Prompt.
+ */
+export function effectiveHandbook(s: AppSettings): string {
+  const trimmed = s.handbook?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : HANDBOOK_DEFAULT;
+}
