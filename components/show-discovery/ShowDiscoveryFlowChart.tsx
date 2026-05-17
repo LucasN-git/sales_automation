@@ -2,7 +2,7 @@
 
 import { GoldDot } from "@/components/brand/GoldDot";
 
-type RunStatus = "pending" | "running" | "done" | "failed";
+type RunStatus = "pending" | "running" | "done" | "failed" | "cancelled";
 
 type LogEntry = {
   id: number;

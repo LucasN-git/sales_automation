@@ -18,6 +18,11 @@ import { RestartButton } from "./RestartButton";
 import { PauseResumeButton } from "./PauseResumeButton";
 import { BulkOverviewButton } from "./BulkOverviewButton";
 import { ShowViewLoader, ShowViewSkeleton } from "./ShowViewLoader";
+import {
+  UrlSearchBanner,
+  type UrlSearchEvidence,
+  type UrlSearchStatus,
+} from "./UrlSearchBanner";
 import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { SettingsIcon } from "@/components/brand/Icons";
 import { RefreshButton } from "@/components/RefreshButton";
@@ -62,7 +67,7 @@ export default async function ShowDetailPage({
       supabase
         .from("trade_shows")
         .select(
-          "id, name, source_url, year, status, current_step, expected_exhibitor_count, error_message, created_at, crawl_plan, browserbase_session_seconds, is_favorite",
+          "id, name, source_url, year, status, current_step, expected_exhibitor_count, error_message, created_at, crawl_plan, browserbase_session_seconds, is_favorite, url_search_status, url_search_evidence",
         )
         .eq("id", id)
         .single(),
@@ -180,6 +185,18 @@ export default async function ShowDetailPage({
           </Link>
         </div>
       </header>
+
+      <UrlSearchBanner
+        showId={id}
+        status={
+          ((show as { url_search_status?: string }).url_search_status ?? "idle") as UrlSearchStatus
+        }
+        sourceUrl={show.source_url ?? null}
+        evidence={
+          ((show as { url_search_evidence?: UrlSearchEvidence | null })
+            .url_search_evidence ?? null) as UrlSearchEvidence | null
+        }
+      />
 
       {view === "aussteller" ? (
         <Suspense fallback={<AusstellerSkeleton />}>

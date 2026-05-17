@@ -9,6 +9,7 @@ import {
   enrichShort,
   enrichDeep,
   searchCompanyUrl,
+  searchTradeShowExhibitorUrl,
   discoverCompetitors,
   discoverShows,
   DiscoveryNoSubmitError,
@@ -1194,6 +1195,135 @@ export const competitorDiscovery = inngest.createFunction(
 );
 
 // ============================================================
+// FIND EXHIBITOR LIST URL — Web-Search aus Messen-Namen
+// ============================================================
+
+export const findExhibitorListUrl = inngest.createFunction(
+  {
+    id: "find-exhibitor-list-url",
+    concurrency: { limit: 1, key: "event.data.userId" },
+    throttle: { limit: 5, period: "1m", key: "event.data.userId" },
+    retries: 0,
+    onFailure: async ({ event }) => {
+      const supabase = createServiceRoleClient();
+      const inner = (event as any).data?.event?.data ?? {};
+      const tradeShowId = inner.tradeShowId as string | undefined;
+      const errMsg = String((event as any).data?.error?.message ?? "unknown");
+      if (!tradeShowId) return;
+      await supabase
+        .from("trade_shows")
+        .update({ url_search_status: "failed" })
+        .eq("id", tradeShowId);
+      await tryAppendLog(supabase, tradeShowId, {
+        phase: "url_search",
+        level: "error",
+        message: `URL-Suche abgebrochen: ${errMsg.slice(0, 400)}`,
+      });
+      await postToOrchestratorThread(
+        supabase,
+        tradeShowId,
+        `URL-Suche fehlgeschlagen: ${errMsg.slice(0, 200)}. Bitte trage die Aussteller-URL manuell in den Einstellungen ein.`,
+      );
+    },
+  },
+  { event: "trade-show.url-search.requested" },
+  async ({ event, step }) => {
+    const { tradeShowId, userId, showName, year } = event.data as {
+      tradeShowId: string;
+      userId: string;
+      showName: string;
+      year: number | null;
+    };
+    const supabase = createServiceRoleClient();
+
+    await step.run("mark-running", async () => {
+      await supabase
+        .from("trade_shows")
+        .update({ url_search_status: "running" })
+        .eq("id", tradeShowId);
+      await tryAppendLog(supabase, tradeShowId, {
+        phase: "url_search",
+        message: `URL-Suche gestartet (web_search, max 5 Queries)`,
+        meta: { show_name: showName, year },
+      });
+    });
+
+    const search = await step.run("claude-web-search", async () => {
+      const r = await searchTradeShowExhibitorUrl({ showName, year });
+      await tryAppendLog(supabase, tradeShowId, {
+        phase: "url_search",
+        message: `Claude fertig: ${r.usage.web_searches} Web-Search(es), url=${
+          r.result.url ?? "null"
+        }, confidence=${r.result.confidence}`,
+        meta: {
+          web_searches: r.usage.web_searches,
+          tokens_in: r.usage.tokens_in,
+          tokens_out: r.usage.tokens_out,
+          candidates_count: r.result.candidates.length,
+          confidence: r.result.confidence,
+        },
+      });
+      return r;
+    });
+
+    await step.run("persist-evidence", async () => {
+      const url = search.result.url;
+      const newStatus = url ? "done" : "url_not_found";
+      await supabase
+        .from("trade_shows")
+        .update({
+          url_search_status: newStatus,
+          url_search_evidence: {
+            url,
+            confidence: search.result.confidence,
+            reasoning: search.result.reasoning,
+            candidates: search.result.candidates,
+            web_searches: search.usage.web_searches,
+            tokens_in: search.usage.tokens_in,
+            tokens_out: search.usage.tokens_out,
+            searched_at: new Date().toISOString(),
+          },
+        })
+        .eq("id", tradeShowId);
+    });
+
+    await step.run("post-chat-message", async () => {
+      const url = search.result.url;
+      const conf = search.result.confidence;
+      if (url) {
+        const confLabel = conf === "high" ? "hoch" : conf === "medium" ? "mittel" : "niedrig";
+        const candidatesLine =
+          search.result.candidates.length > 1
+            ? `\n\nWeitere geprüfte Kandidaten:\n${search.result.candidates
+                .filter((c) => c.url !== url)
+                .slice(0, 3)
+                .map((c) => `- ${c.url}  ${c.reason}`)
+                .join("\n")}`
+            : "";
+        await postToOrchestratorThread(
+          supabase,
+          tradeShowId,
+          `Ich habe folgende Aussteller-URL gefunden:\n\n**${url}**\n\nKonfidenz: ${confLabel}. ${search.result.reasoning}${candidatesLine}\n\nIm Show-Header siehst du jetzt einen Banner. Klicke "Übernehmen + Discovery starten", oder trage in den Einstellungen eine andere URL ein.`,
+        );
+      } else {
+        await postToOrchestratorThread(
+          supabase,
+          tradeShowId,
+          `Ich konnte keine eindeutige Aussteller-URL finden. ${search.result.reasoning}\n\nBitte trage die URL manuell in den Einstellungen unter "Stammdaten" ein, dann kann ich Discovery starten.`,
+        );
+      }
+    });
+
+    return {
+      tradeShowId,
+      url: search.result.url,
+      confidence: search.result.confidence,
+      web_searches: search.usage.web_searches,
+    };
+  },
+);
+
+// ============================================================
 // SHOW DISCOVERY (Phase 10) — Messen suchen
 // ============================================================
 
@@ -1352,6 +1482,39 @@ export const showDiscovery = inngest.createFunction(
       });
     });
 
+    const cancelledAfterClaude = await step.run("check-cancel-after-claude", async () => {
+      const { data } = await supabase
+        .from("show_discovery_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      const cancelled = data?.status === "cancelled";
+      if (cancelled) {
+        await supabase
+          .from("show_discovery_runs")
+          .update({
+            model: SHOW_DISCOVERY_MODEL,
+            tokens_in: result.usage.tokens_in,
+            tokens_out: result.usage.tokens_out,
+            web_search_uses: result.webSearchUses,
+            firecrawl_calls: 0,
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", runId);
+        await tryAppendShowDiscoveryLog(supabase, runId, userId, {
+          level: "warn",
+          phase: "cancelled",
+          message: `Lauf abgebrochen. Claude-Resultate (${result.output.items.length} Kandidaten) werden nicht persistiert, Fan-out uebersprungen.`,
+          meta: { candidates_dropped: result.output.items.length },
+        });
+      }
+      return cancelled;
+    });
+
+    if (cancelledAfterClaude) {
+      return { runId, total: 0, to_validate: 0, cancelled: true };
+    }
+
     const resultIds = await step.run("persist-candidates", async () => {
       await supabase
         .from("show_discovery_runs")
@@ -1396,6 +1559,41 @@ export const showDiscovery = inngest.createFunction(
 
       return (inserted ?? []) as Array<{ id: string; name: string; website: string | null; firecrawl_status: string }>;
     });
+
+    // Cancel check before fan-out: persist already happened (results are saved
+    // for the user to inspect), but skip the expensive Firecrawl validation.
+    const cancelledBeforeFanout = await step.run("check-cancel-before-fanout", async () => {
+      const { data } = await supabase
+        .from("show_discovery_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      const cancelled = data?.status === "cancelled";
+      if (cancelled) {
+        await supabase
+          .from("show_discovery_runs")
+          .update({
+            model: SHOW_DISCOVERY_MODEL,
+            tokens_in: result.usage.tokens_in,
+            tokens_out: result.usage.tokens_out,
+            web_search_uses: result.webSearchUses,
+            firecrawl_calls: 0,
+            candidates_validated: 0,
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", runId);
+        await tryAppendShowDiscoveryLog(supabase, runId, userId, {
+          level: "warn",
+          phase: "cancelled",
+          message: `Lauf abgebrochen. Claude-Resultate sind gespeichert, Firecrawl-Validierung uebersprungen.`,
+        });
+      }
+      return cancelled;
+    });
+
+    if (cancelledBeforeFanout) {
+      return { runId, total: resultIds.length, to_validate: 0, cancelled: true };
+    }
 
     // Fan-out: one Firecrawl validation event per candidate with a URL.
     const toValidate = resultIds.filter((r) => r.website && r.firecrawl_status === "pending");
@@ -1457,6 +1655,27 @@ export const showResultFirecrawl = inngest.createFunction(
       website: string;
     };
     const supabase = createServiceRoleClient();
+
+    const cancelled = await step.run("check-run-cancelled", async () => {
+      const { data } = await supabase
+        .from("show_discovery_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      return data?.status === "cancelled";
+    });
+
+    if (cancelled) {
+      await step.run("skip-cancelled", async () => {
+        await tryAppendShowDiscoveryLog(supabase, runId, userId, {
+          level: "warn",
+          phase: "firecrawl_start",
+          message: `Validierung uebersprungen (Lauf wurde gestoppt): ${showName}`,
+          meta: { result_id: resultId },
+        });
+      });
+      return;
+    }
 
     await step.run("firecrawl-validate", async () => {
       // Mark running
@@ -1524,6 +1743,7 @@ export const showResultFirecrawl = inngest.createFunction(
           .eq("run_id", runId)
           .neq("firecrawl_status", "skipped");
 
+        // Don't flip a cancelled run back to done — only finalize if still running.
         await supabase
           .from("show_discovery_runs")
           .update({
@@ -1533,7 +1753,8 @@ export const showResultFirecrawl = inngest.createFunction(
             candidates_validated: validatedCount ?? 0,
             firecrawl_calls: totalFirecrawlCalls ?? 0,
           })
-          .eq("id", runId);
+          .eq("id", runId)
+          .eq("status", "running");
 
         await tryAppendShowDiscoveryLog(supabase, runId, userId, {
           phase: "done",
@@ -2154,6 +2375,7 @@ export const functions = [
   exhibitorProfileEnrich,
   manualEnrichChain,
   competitorDiscovery,
+  findExhibitorListUrl,
   showDiscovery,
   showResultFirecrawl,
   competitorShortBulk,

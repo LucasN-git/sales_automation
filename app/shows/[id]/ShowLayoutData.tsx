@@ -13,7 +13,11 @@ export async function ShowLayoutData({
   const supabase = await createClient();
 
   const [{ data: show }, statusRows, { data: deepRowsRaw }] = await Promise.all([
-    supabase.from("trade_shows").select("id, status").eq("id", id).single(),
+    supabase
+      .from("trade_shows")
+      .select("id, status, url_search_status")
+      .eq("id", id)
+      .single(),
     getShowExhibitorStatus(id),
     supabase
       .from("exhibitor_deep")
@@ -43,7 +47,11 @@ export async function ShowLayoutData({
       e.deep_status === "running" ||
       e.deep_status === "pending",
   );
-  const pollIntervalMs = isActivelyCrawling || hasRunningExhibitors ? 5000 : 0;
+  const urlSearchActive =
+    (show as { url_search_status?: string }).url_search_status === "pending" ||
+    (show as { url_search_status?: string }).url_search_status === "running";
+  const pollIntervalMs =
+    isActivelyCrawling || hasRunningExhibitors || urlSearchActive ? 5000 : 0;
 
   return (
     <>

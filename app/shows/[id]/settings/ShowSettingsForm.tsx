@@ -9,6 +9,21 @@ import { Hairline } from "@/components/brand/Hairline";
 import type { CrawlPlan } from "@/lib/crawl-plan";
 import { CrawlPlanOverride } from "../CrawlPlanOverride";
 
+type UrlSearchStatus =
+  | "idle"
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "url_not_found";
+
+type UrlSearchEvidence = {
+  url: string | null;
+  confidence: "low" | "medium" | "high";
+  reasoning: string;
+  searched_at?: string;
+} | null;
+
 type Initial = {
   name: string;
   source_url: string;
@@ -17,6 +32,8 @@ type Initial = {
   expected_exhibitor_count: number | null;
   crawl_plan: CrawlPlan | null;
   crawl_plan_raw: Record<string, unknown> | null;
+  url_search_status: UrlSearchStatus;
+  url_search_evidence: UrlSearchEvidence;
 };
 
 export function ShowSettingsForm({
@@ -154,6 +171,10 @@ export function ShowSettingsForm({
               value={sourceUrl}
               onChange={setSourceUrl}
               placeholder="https://..."
+            />
+            <UrlSearchHint
+              status={initial.url_search_status}
+              evidence={initial.url_search_evidence}
             />
           </div>
           <div className="md:col-span-2">
@@ -440,4 +461,55 @@ function clampInt(s: string, min: number, max: number, fallback: number): number
   const n = parseInt(s, 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
+}
+
+const CONFIDENCE_LABEL: Record<"low" | "medium" | "high", string> = {
+  high: "hoch",
+  medium: "mittel",
+  low: "niedrig",
+};
+
+function UrlSearchHint({
+  status,
+  evidence,
+}: {
+  status: UrlSearchStatus;
+  evidence: UrlSearchEvidence;
+}) {
+  if (status === "idle") return null;
+
+  if (status === "pending" || status === "running") {
+    return (
+      <p className="mt-1.5 text-meta inline-flex items-center gap-2 text-[var(--color-near-black)]/65">
+        <GoldDot size={5} />
+        wird automatisch gesucht
+      </p>
+    );
+  }
+
+  if (status === "done" && evidence?.url) {
+    return (
+      <p className="mt-1.5 text-meta text-[var(--color-near-black)]/55">
+        automatisch erkannt, konfidenz {CONFIDENCE_LABEL[evidence.confidence]}
+      </p>
+    );
+  }
+
+  if (status === "url_not_found") {
+    return (
+      <p className="mt-1.5 text-meta text-[var(--color-near-black)]/70">
+        keine eindeutige url gefunden, bitte manuell eintragen
+      </p>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <p className="mt-1.5 text-meta text-[var(--color-error)]">
+        url-suche fehlgeschlagen
+      </p>
+    );
+  }
+
+  return null;
 }

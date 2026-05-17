@@ -14,7 +14,7 @@ import { useReportErrorSafe } from "@/components/ErrorReportProvider";
 
 type Run = {
   id: string;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
   current_phase: string | null;
   user_prompt: string | null;
   candidates_total: number | null;
@@ -71,7 +71,12 @@ export default function ShowSearchPage() {
   // Polling while a run is active.
   useEffect(() => {
     if (!activeRunId) return;
-    if (activeRun?.status === "done" || activeRun?.status === "failed") return;
+    if (
+      activeRun?.status === "done" ||
+      activeRun?.status === "failed" ||
+      activeRun?.status === "cancelled"
+    )
+      return;
 
     const poll = async () => {
       await Promise.all([
@@ -140,6 +145,46 @@ export default function ShowSearchPage() {
     setLogEntries([]);
     setResults([]);
     await Promise.all([pollLog(run.id), pollResults(run.id)]);
+  }
+
+  async function handleCancelRun(runId: string) {
+    const r = await apiFetch(`/api/show-discovery/${runId}/cancel`, {
+      method: "POST",
+      reporter: reportError,
+    });
+    if (r.ok) {
+      await Promise.all([loadPastRuns(), runId === activeRunId ? pollRun(runId) : Promise.resolve()]);
+    }
+  }
+
+  async function handleResumeRun(runId: string) {
+    const r = await apiFetch(`/api/show-discovery/${runId}/resume`, {
+      method: "POST",
+      reporter: reportError,
+    });
+    if (r.ok) {
+      setActiveRunId(runId);
+      setLogEntries([]);
+      setResults([]);
+      await Promise.all([loadPastRuns(), pollRun(runId)]);
+    }
+  }
+
+  async function handleDeleteRun(runId: string) {
+    if (!confirm("Diesen Lauf endgueltig loeschen? Ergebnisse und Log werden mit entfernt.")) return;
+    const r = await apiFetch(`/api/show-discovery/${runId}`, {
+      method: "DELETE",
+      reporter: reportError,
+    });
+    if (r.ok) {
+      if (runId === activeRunId) {
+        setActiveRunId(null);
+        setActiveRun(null);
+        setLogEntries([]);
+        setResults([]);
+      }
+      await loadPastRuns();
+    }
   }
 
   const isRunning = activeRun?.status === "pending" || activeRun?.status === "running";
@@ -279,35 +324,60 @@ export default function ShowSearchPage() {
           <ul className="space-y-2">
             {pastRuns.map((run) => {
               const isActive = run.id === activeRunId;
+              const canCancel = run.status === "pending" || run.status === "running";
+              const canResume = run.status === "cancelled" || run.status === "failed";
               return (
                 <li key={run.id}>
-                  <button
-                    onClick={() => handleLoadRun(run)}
-                    className={`w-full text-left px-4 py-3 border transition-colors ${
+                  <div
+                    className={`flex items-center gap-2 px-4 py-3 border transition-colors ${
                       isActive
                         ? "border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.03]"
                         : "border-[var(--color-hairline-light)] hover:border-[var(--color-near-black)]/30"
                     }`}
                   >
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="flex items-baseline gap-3 min-w-0">
-                        <RunStatusBadge status={run.status} />
-                        <span className="text-body-sm truncate">
-                          {run.user_prompt?.slice(0, 80) ?? "(kein Prompt)"}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-3 shrink-0">
-                        {run.candidates_total !== null && (
-                          <span className="text-meta text-[var(--color-near-black)]/50">
-                            {run.candidates_total} Messen
+                    <button
+                      onClick={() => handleLoadRun(run)}
+                      className="flex-1 min-w-0 text-left"
+                    >
+                      <div className="flex items-baseline justify-between gap-4">
+                        <div className="flex items-baseline gap-3 min-w-0">
+                          <RunStatusBadge status={run.status} />
+                          <span className="text-body-sm truncate">
+                            {run.user_prompt?.slice(0, 80) ?? "(kein Prompt)"}
                           </span>
-                        )}
-                        <span className="text-meta text-[var(--color-near-black)]/40">
-                          {new Date(run.created_at).toLocaleDateString("de-DE")}
-                        </span>
+                        </div>
+                        <div className="flex items-baseline gap-3 shrink-0">
+                          {run.candidates_total !== null && (
+                            <span className="text-meta text-[var(--color-near-black)]/50">
+                              {run.candidates_total} Messen
+                            </span>
+                          )}
+                          <span className="text-meta text-[var(--color-near-black)]/40">
+                            {new Date(run.created_at).toLocaleDateString("de-DE")}
+                          </span>
+                        </div>
                       </div>
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {canCancel && (
+                        <RunActionButton
+                          label="Stoppen"
+                          onClick={() => handleCancelRun(run.id)}
+                        />
+                      )}
+                      {canResume && (
+                        <RunActionButton
+                          label="Fortsetzen"
+                          onClick={() => handleResumeRun(run.id)}
+                        />
+                      )}
+                      <RunActionButton
+                        label="Loeschen"
+                        onClick={() => handleDeleteRun(run.id)}
+                        danger
+                      />
                     </div>
-                  </button>
+                  </div>
                 </li>
               );
             })}
@@ -474,7 +544,42 @@ function RunStatusBadge({ status }: { status: Run["status"] }) {
   if (status === "running" || status === "pending") {
     return <GoldDot size={6} />;
   }
+  if (status === "cancelled") {
+    return (
+      <span
+        className="shrink-0 inline-block w-2 h-2"
+        style={{ background: "rgba(10,10,10,0.30)" }}
+        title="gestoppt"
+      />
+    );
+  }
   return (
     <span className="shrink-0 text-[10px] font-bold text-[var(--color-near-black)]/50">×</span>
+  );
+}
+
+function RunActionButton({
+  label,
+  onClick,
+  danger,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={`px-2 py-1 text-meta border transition-colors ${
+        danger
+          ? "border-[var(--color-hairline-light)] text-[var(--color-near-black)]/60 hover:border-[var(--color-near-black)] hover:text-[var(--color-near-black)]"
+          : "border-[var(--color-hairline-light)] text-[var(--color-near-black)]/70 hover:border-[var(--color-near-black)] hover:text-[var(--color-near-black)]"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

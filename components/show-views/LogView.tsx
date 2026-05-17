@@ -1,18 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LogEntry } from "./types";
 
 export function LogView({ entries }: { entries: LogEntry[] }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // Group keys, day labels, and times all depend on the local timezone.
+  // Server (UTC) and client (Europe/Berlin) produce different output, which
+  // breaks hydration during scraping when router.refresh() re-renders the
+  // server tree every 5s. Defer rendering until after mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <p className="text-meta">lade...</p>;
+  }
 
   if (entries.length === 0) {
     return <p className="text-meta">noch keine eintraege</p>;
   }
 
-  // Server liefert newest-first, das wollen wir auch - keine reverse mehr.
-  // Auto-scroll entfaellt: neue Eintraege erscheinen oben, der Scroll-Container
-  // bleibt da wo der User gerade liest.
   const groups = groupByDay(entries);
 
   return (

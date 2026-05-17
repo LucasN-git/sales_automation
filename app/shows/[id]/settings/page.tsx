@@ -17,7 +17,7 @@ export default async function ShowSettingsPage({
   const { data: show } = await supabase
     .from("trade_shows")
     .select(
-      "id, name, source_url, year, chat_context, crawl_plan, expected_exhibitor_count, status",
+      "id, name, source_url, year, chat_context, crawl_plan, expected_exhibitor_count, status, url_search_status, url_search_evidence",
     )
     .eq("id", id)
     .single();
@@ -63,6 +63,23 @@ export default async function ShowSettingsPage({
           crawl_plan: crawlPlan,
           crawl_plan_raw:
             (show.crawl_plan as Record<string, unknown> | null) ?? null,
+          url_search_status:
+            ((show as { url_search_status?: string }).url_search_status ?? "idle") as
+              | "idle"
+              | "pending"
+              | "running"
+              | "done"
+              | "failed"
+              | "url_not_found",
+          url_search_evidence:
+            ((show as {
+              url_search_evidence?: {
+                url: string | null;
+                confidence: "low" | "medium" | "high";
+                reasoning: string;
+                searched_at?: string;
+              } | null;
+            }).url_search_evidence ?? null),
         }}
       />
     </>

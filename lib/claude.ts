@@ -1675,3 +1675,125 @@ Suche die offizielle Website dieser Firma mit web_search. Finde ausserdem die Li
     },
   };
 }
+
+// ---------- TRADE-SHOW EXHIBITOR-URL SEARCH ----------
+
+export const TradeShowUrlCandidateSchema = z.object({
+  url: z.string().describe("Vollstaendige URL eines Kandidaten."),
+  reason: z
+    .string()
+    .describe("Kurze Begruendung (1 Satz) warum dieser Kandidat in Frage kommt."),
+});
+export type TradeShowUrlCandidate = z.infer<typeof TradeShowUrlCandidateSchema>;
+
+export const TradeShowUrlSearchResultSchema = z.object({
+  url: z
+    .string()
+    .nullable()
+    .describe(
+      "Beste Aussteller-Listen-URL. Bevorzugt eine Sub-Seite wie /exhibitors oder /aussteller. null wenn nichts Eindeutiges gefunden.",
+    ),
+  confidence: z
+    .enum(["low", "medium", "high"])
+    .describe(
+      "high = klare offizielle Aussteller-Liste; medium = plausibel aber nicht 100% bestaetigt; low = unsicher oder nur Homepage.",
+    ),
+  reasoning: z
+    .string()
+    .describe("1 bis 2 Saetze: warum diese URL gewaehlt wurde oder warum keine gefunden wurde."),
+  candidates: z
+    .array(TradeShowUrlCandidateSchema)
+    .max(5)
+    .describe("Weitere geprueft URLs (max 5), inkl. der gewaehlten. Leer wenn nichts gefunden."),
+});
+export type TradeShowUrlSearchResult = z.infer<typeof TradeShowUrlSearchResultSchema>;
+
+const TRADE_SHOW_URL_SEARCH_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    url: { type: ["string", "null"] },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    reasoning: { type: "string" },
+    candidates: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["url", "reason"],
+      },
+    },
+  },
+  required: ["url", "confidence", "reasoning", "candidates"],
+} as const;
+
+/**
+ * Sucht per Anthropic native web_search die wahrscheinlichste Aussteller-Listen-URL
+ * fuer eine Messe (gegeben nur deren Name + Jahr). Bevorzugt offizielle Messen-Domains
+ * und Sub-Pfade wie /exhibitors, /aussteller, /ausstellerverzeichnis.
+ */
+export async function searchTradeShowExhibitorUrl(input: {
+  showName: string;
+  year?: number | null;
+}): Promise<{
+  result: TradeShowUrlSearchResult;
+  usage: Usage & { web_searches: number };
+}> {
+  const yearLine = input.year ? `\nJahr: ${input.year}` : "";
+  const userContent = `Messe: ${input.showName}${yearLine}
+
+Finde die offizielle Aussteller-Listen-URL dieser Messe. Suche aktiv per web_search nach Kombinationen wie:
+- "<Messe-Name> exhibitors"
+- "<Messe-Name> aussteller"
+- "<Messe-Name> list of exhibitors"
+- "<Messe-Name> ausstellerverzeichnis"
+
+Bevorzuge eine Sub-Seite (z.B. /exhibitors, /aussteller, /ausstellerverzeichnis, /exhibitor-list), keine Homepage. Bevorzuge offizielle Messen-Domains, keine Drittanbieter-Aggregatoren. Wenn du nichts Eindeutiges findest, gib url=null und confidence=low zurueck. Rufe submit_listing_url genau einmal auf.`;
+
+  const response = await client().messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1500,
+    system: [
+      {
+        type: "text",
+        text:
+          "Du bist ein Research-Assistent fuer Messe-Sales-Intelligence. Deine Aufgabe: fuer eine genannte Messe die direkte URL der Aussteller-Liste finden. Nicht die Startseite, nicht die Programm-Seite, sondern die Seite mit der durchsuchbaren oder paginierten Aussteller-Liste. Antworte ausschliesslich ueber das submit_listing_url-Tool.",
+      },
+    ],
+    tools: [
+      { type: "web_search_20250305", name: "web_search", max_uses: 5 } as any,
+      {
+        name: "submit_listing_url",
+        description:
+          "Submit the most likely exhibitor-list URL for the trade show. Call exactly once after searching.",
+        input_schema: TRADE_SHOW_URL_SEARCH_INPUT_SCHEMA as any,
+      },
+    ],
+    tool_choice: { type: "any" },
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  const webSearches = response.content.filter(
+    (b: any) => b.type === "server_tool_use" && b.name === "web_search",
+  ).length;
+
+  const toolUse = response.content.find(
+    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "submit_listing_url",
+  );
+  if (!toolUse) {
+    throw new Error(`Trade-show URL search tool call missing. stop=${response.stop_reason}`);
+  }
+
+  const result = TradeShowUrlSearchResultSchema.parse(toolUse.input);
+  return {
+    result,
+    usage: {
+      tokens_in: response.usage.input_tokens,
+      tokens_out: response.usage.output_tokens,
+      web_searches: webSearches,
+    },
+  };
+}

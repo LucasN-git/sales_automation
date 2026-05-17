@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { inngest } from "@/lib/inngest/client";
 
 const Body = z.object({
   name: z.string().min(2).max(200),
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
 
+  const hasUrl = !!body.source_url;
   const { data, error } = await supabase
     .from("trade_shows")
     .insert({
@@ -32,6 +34,7 @@ export async function POST(request: Request) {
       source_url: body.source_url ?? null,
       year: body.year ?? null,
       status: "queued",
+      url_search_status: hasUrl ? "done" : "pending",
     })
     .select("id")
     .single();
@@ -54,13 +57,9 @@ export async function POST(request: Request) {
     .single();
 
   if (thread) {
-    const urlLine = body.source_url
-      ? `\nQuelle: ${body.source_url}`
-      : "\nKeine Aussteller-URL hinterlegt. Bitte zuerst eine URL in den Einstellungen setzen.";
-
-    const greeting = body.source_url
-      ? `Neue Messe erkannt: **${body.name}**${urlLine}\n\nIch bin bereit. Tippe **"starte"** oder **"ja"** um Discovery und Listing zu beginnen, oder stelle mir Fragen zum Ablauf.`
-      : `Neue Messe angelegt: **${body.name}**${urlLine}\n\nSobald eine URL gesetzt ist, kann ich Discovery und Listing starten.`;
+    const greeting = hasUrl
+      ? `Neue Messe erkannt: **${body.name}**\nQuelle: ${body.source_url}\n\nIch bin bereit. Tippe **"starte"** oder **"ja"** um Discovery und Listing zu beginnen, oder stelle mir Fragen zum Ablauf.`
+      : `Neue Messe angelegt: **${body.name}**\n\nIch suche jetzt automatisch die Aussteller-URL per Web-Search. Das dauert ungefähr 30 Sekunden. Sobald ich fertig bin, siehst du im Show-Header einen Banner mit der gefundenen URL zur Bestätigung.`;
 
     await supabase.from("chat_messages").insert({
       thread_id: thread.id,
@@ -68,6 +67,18 @@ export async function POST(request: Request) {
       user_id: user.id,
       role: "assistant",
       content: greeting,
+    });
+  }
+
+  if (!hasUrl) {
+    await inngest.send({
+      name: "trade-show.url-search.requested",
+      data: {
+        tradeShowId: data.id,
+        userId: user.id,
+        showName: body.name,
+        year: body.year ?? null,
+      },
     });
   }
 

@@ -34,7 +34,11 @@ export async function PATCH(
 
   const update: Record<string, unknown> = {};
   if ("name" in body) update.name = body.name;
-  if ("source_url" in body) update.source_url = body.source_url;
+  if ("source_url" in body) {
+    update.source_url = body.source_url;
+    // Wenn der User die URL manuell setzt, ist die automatische Suche abgeschlossen.
+    if (body.source_url) update.url_search_status = "done";
+  }
   if ("year" in body) update.year = body.year;
   if ("chat_context" in body) {
     const trimmed = typeof body.chat_context === "string" ? body.chat_context.trim() : null;

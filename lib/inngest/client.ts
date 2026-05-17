@@ -8,6 +8,14 @@ type Events = {
   "trade-show.listing-requested": {
     data: { tradeShowId: string };
   };
+  "trade-show.url-search.requested": {
+    data: {
+      tradeShowId: string;
+      userId: string;
+      showName: string;
+      year: number | null;
+    };
+  };
   "exhibitor.enrich.requested": {
     data: { exhibitorId: string; tradeShowId: string };
   };

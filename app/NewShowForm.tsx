@@ -8,7 +8,6 @@ import { parseErrorJson } from "@/lib/fetch-json";
 
 export function NewShowForm() {
   const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
   const [year, setYear] = useState<string>(String(new Date().getFullYear()));
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +23,6 @@ export function NewShowForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name,
-        source_url: url || null,
         year: year ? Number(year) : null,
       }),
     });
@@ -37,7 +35,6 @@ export function NewShowForm() {
     const { id } = await res.json();
     setOpen(false);
     setName("");
-    setUrl("");
     // loading.stop() is handled by NavigationLoadingTrigger on pathname commit.
     startTransition(() => {
       router.push(`/shows/${id}`);
@@ -60,9 +57,9 @@ export function NewShowForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t border-b border-[var(--border-color-soft)] py-8 grid grid-cols-1 md:grid-cols-12 gap-6"
+      className="border-t border-b border-[var(--border-color-soft)] py-8 grid grid-cols-1 md:grid-cols-8 gap-6"
     >
-      <div className="md:col-span-5">
+      <div className="md:col-span-6">
         <label className="block text-meta mb-2">messe-name</label>
         <input
           required
@@ -71,16 +68,9 @@ export function NewShowForm() {
           placeholder="AUSA Annual Meeting"
           className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
-      </div>
-      <div className="md:col-span-5">
-        <label className="block text-meta mb-2">url aussteller-liste</label>
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://meeting.ausa.org/exhibitors"
-          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
-        />
+        <p className="text-meta mt-1.5 text-[var(--color-near-black)]/55">
+          Ich suche danach automatisch die Aussteller-URL per Web-Search.
+        </p>
       </div>
       <div className="md:col-span-2">
         <label className="block text-meta mb-2">jahr</label>
@@ -94,13 +84,13 @@ export function NewShowForm() {
         />
       </div>
 
-      <div className="md:col-span-12 flex items-center gap-4 flex-wrap">
+      <div className="md:col-span-8 flex items-center gap-4 flex-wrap">
         <button
           type="submit"
           disabled={pending || !name}
           className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
         >
-          <span>{pending ? "starte" : "crawl starten"}</span>
+          <span>{pending ? "starte" : "anlegen"}</span>
           <GoldDot size={6} />
         </button>
         <button
