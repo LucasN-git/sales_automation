@@ -178,63 +178,55 @@ export function CompetitorsView({
             : "keine konkurrenten in dieser ansicht."}
         </div>
       ) : (
-        <ul className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {filtered.map((c) => (
-            <li key={c.id} className="relative">
+            <div key={c.id} className="card-surface group flex flex-col">
               <Link
                 href={`/competitors/${c.id}`}
-                className="block px-5 py-4 pr-44 box-line hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
+                className="flex-1 block px-5 pt-5 pb-4"
               >
-                <div className="flex items-start justify-between gap-6">
-                  <div className="flex items-start gap-4 min-w-0 flex-1">
-                    <ThreatPill level={c.threat_level} />
-                    <div className="min-w-0">
-                      <span className="text-subtitle block leading-snug">{c.display_name}</span>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                        {c.domain && (
-                          <span className="text-meta text-[var(--color-near-black)]/55">
-                            {c.domain}
-                          </span>
-                        )}
-                        {c.hq_country && (
-                          <span className="text-meta text-[var(--color-near-black)]/55">
-                            {c.hq_country}
-                          </span>
-                        )}
-                        {c.isp_sector_match.length > 0 && (
-                          <span className="text-meta text-[var(--color-near-black)]/40">
-                            {c.isp_sector_match
-                              .map((sid) => sectorMap[sid] ?? sid)
-                              .join(" , ")}
-                          </span>
-                        )}
-                      </div>
-                      {c.one_liner && (
-                        <p className="text-body-sm text-[var(--color-near-black)]/65 mt-1.5 leading-snug">
-                          {c.one_liner}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 self-start pt-px">
-                    <StatusBadge status={c.status} />
-                    <ArrowRight size={13} className="text-[var(--color-near-black)]/30" />
-                  </div>
+                <div className="flex items-start justify-between mb-3">
+                  <ThreatPill level={c.threat_level} />
+                  <ArrowRight
+                    size={13}
+                    className="text-[var(--color-near-black)]/30 group-hover:text-[var(--color-near-black)]/70 transition-colors"
+                  />
                 </div>
+                <span className="text-subtitle font-semibold leading-snug block">{c.display_name}</span>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                  {c.domain && (
+                    <span className="text-meta text-[var(--color-near-black)]/55">{c.domain}</span>
+                  )}
+                  {c.hq_country && (
+                    <span className="text-meta text-[var(--color-near-black)]/55">{c.hq_country}</span>
+                  )}
+                </div>
+                {c.one_liner && (
+                  <p className="text-body-sm text-[var(--color-near-black)]/65 mt-1.5 leading-snug line-clamp-2">
+                    {c.one_liner}
+                  </p>
+                )}
+                {c.isp_sector_match.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-x-2 gap-y-0.5">
+                    {c.isp_sector_match.map((sid) => (
+                      <span key={sid} className="text-meta text-[var(--color-near-black)]/40">
+                        {sectorMap[sid] ?? sid}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </Link>
-              <div
-                className="absolute top-1/2 right-12 -translate-y-1/2"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <div className="px-5 pb-4 pt-3 border-t border-[var(--border-color-soft)] flex items-center justify-between gap-3">
+                <StatusBadge status={c.status} />
                 <CurateActions
                   row={c}
                   pending={pendingId === c.id}
                   onCurate={(s) => curate(c.id, s)}
                 />
               </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

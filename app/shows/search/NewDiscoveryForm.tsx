@@ -39,7 +39,7 @@ export function NewDiscoveryForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="box-line px-5 py-5">
+    <form onSubmit={handleSubmit} className="card-surface px-5 py-5">
       <label className="block text-meta-strong mb-2">Suchfokus</label>
       <textarea
         value={prompt}

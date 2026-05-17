@@ -93,11 +93,11 @@ export default async function ShowSearchPage() {
             noch keine messen-suche gestartet. nutze das formular oben.
           </div>
         ) : (
-          <ul className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {runs.map((r) => (
               <RunRow key={r.id} run={r} />
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </>
@@ -110,59 +110,55 @@ function RunRow({ run }: { run: RunRow }) {
   const dateStr = date.toLocaleDateString("de-DE", { day: "2-digit", month: "short" });
   const timeStr = date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   const prompt = run.user_prompt?.trim() || "(kein Prompt)";
-  const promptShort = prompt.length > 100 ? prompt.slice(0, 100) + "..." : prompt;
+  const promptShort = prompt.length > 120 ? prompt.slice(0, 120) + "..." : prompt;
   const canCancel = isLive;
   const canResume = run.status === "cancelled" || run.status === "failed";
 
   return (
-    <li className="relative">
+    <div className="card-surface group flex flex-col">
       <Link
         href={`/shows/search/runs/${run.id}`}
-        className="block px-5 py-4 pr-40 box-line hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
+        className="flex-1 block px-5 pt-5 pb-4"
       >
-        <div className="flex items-start justify-between gap-6">
-          <div className="flex items-start gap-4 min-w-0 flex-1">
-            <StatusMark status={run.status} />
-            <div className="min-w-0">
-              <span className="text-subtitle block leading-snug">{promptShort}</span>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                <span className="text-meta tabular-nums text-[var(--color-near-black)]/55">
-                  {dateStr} {timeStr}
-                </span>
-                {run.current_phase && isLive && (
-                  <span className="text-meta text-[var(--color-near-black)]/55">
-                    {run.current_phase}
-                  </span>
-                )}
-                {run.status === "failed" && run.error_message && (
-                  <span className="text-meta text-[var(--color-near-black)]/55 truncate max-w-md">
-                    {run.error_message.slice(0, 80)}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-5 shrink-0 self-start pt-px">
-            {run.candidates_total !== null && (
-              <span className="text-meta-strong tabular-nums">
-                {run.candidates_added ?? 0}/{run.candidates_total} messen
-              </span>
-            )}
-            <span className="inline-flex items-center gap-2 text-meta-strong">
-              {isLive && <GoldDot size={6} />}
-              {STATUS_LABELS[run.status]}
+        <div className="flex items-start justify-between mb-4">
+          <StatusMark status={run.status} />
+          <ArrowRight
+            size={13}
+            className="text-[var(--color-near-black)]/30 group-hover:text-[var(--color-near-black)]/70 transition-colors"
+          />
+        </div>
+        <span className="text-subtitle font-semibold leading-snug block">{promptShort}</span>
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+          {run.current_phase && isLive && (
+            <span className="text-meta text-[var(--color-near-black)]/55">
+              {run.current_phase}
             </span>
-            <ArrowRight size={13} className="text-[var(--color-near-black)]/30" />
-          </div>
+          )}
+          {run.status === "failed" && run.error_message && (
+            <span className="text-meta text-[var(--color-near-black)]/55 line-clamp-1">
+              {run.error_message.slice(0, 80)}
+            </span>
+          )}
         </div>
       </Link>
-      <div
-        className="absolute top-1/2 right-3 -translate-y-1/2"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="px-5 pb-4 pt-3 border-t border-[var(--border-color-soft)] flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-meta tabular-nums text-[var(--color-near-black)]/55">
+            {dateStr} {timeStr}
+          </span>
+          {run.candidates_total !== null && (
+            <span className="text-meta-strong tabular-nums">
+              {run.candidates_added ?? 0}/{run.candidates_total} messen
+            </span>
+          )}
+          <span className="inline-flex items-center gap-2 text-meta-strong">
+            {isLive && <GoldDot size={6} />}
+            {STATUS_LABELS[run.status]}
+          </span>
+        </div>
         <RunRowActions runId={run.id} canCancel={canCancel} canResume={canResume} />
       </div>
-    </li>
+    </div>
   );
 }
 
