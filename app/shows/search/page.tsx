@@ -9,6 +9,8 @@ import {
   type ShowDiscoveryResult,
 } from "@/components/show-discovery/ShowDiscoveryResultCard";
 import { priceFor, priceForWebSearch, formatCost } from "@/lib/pricing";
+import { apiFetch } from "@/lib/api-fetch";
+import { useReportErrorSafe } from "@/components/ErrorReportProvider";
 
 type Run = {
   id: string;
@@ -39,19 +41,10 @@ type LogEntry = {
 
 const POLL_INTERVAL_MS = 4000;
 
-async function readJsonSafe(res: Response): Promise<Record<string, unknown> | null> {
-  try {
-    const text = await res.text();
-    if (!text) return null;
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 export default function ShowSearchPage() {
   const searchParams = useSearchParams();
   const view = searchParams.get("view") ?? "prozess";
+  const reportError = useReportErrorSafe();
 
   const [prompt, setPrompt] = useState("");
   const [pending, startTransition] = useTransition();
@@ -71,14 +64,8 @@ export default function ShowSearchPage() {
   }, []);
 
   async function loadPastRuns() {
-    try {
-      const res = await fetch("/api/show-discovery");
-      if (!res.ok) return;
-      const json = await readJsonSafe(res);
-      setPastRuns((json?.runs as Run[]) ?? []);
-    } catch {
-      // ignore
-    }
+    const r = await apiFetch<{ runs: Run[] }>("/api/show-discovery", { reporter: reportError });
+    if (r.ok) setPastRuns(r.data.runs ?? []);
   }
 
   // Polling while a run is active.
@@ -102,36 +89,18 @@ export default function ShowSearchPage() {
   }, [activeRunId, activeRun?.status]);
 
   async function pollRun(runId: string) {
-    try {
-      const res = await fetch(`/api/show-discovery/${runId}`);
-      if (!res.ok) return;
-      const json = await readJsonSafe(res);
-      if (json?.run) setActiveRun(json.run as Run);
-    } catch {
-      // ignore
-    }
+    const r = await apiFetch<{ run: Run }>(`/api/show-discovery/${runId}`, { reporter: reportError });
+    if (r.ok && r.data.run) setActiveRun(r.data.run);
   }
 
   async function pollLog(runId: string) {
-    try {
-      const res = await fetch(`/api/show-discovery/${runId}/log`);
-      if (!res.ok) return;
-      const json = await readJsonSafe(res);
-      setLogEntries((json?.entries as LogEntry[]) ?? []);
-    } catch {
-      // ignore
-    }
+    const r = await apiFetch<{ entries: LogEntry[] }>(`/api/show-discovery/${runId}/log`, { reporter: reportError });
+    if (r.ok) setLogEntries(r.data.entries ?? []);
   }
 
   async function pollResults(runId: string) {
-    try {
-      const res = await fetch(`/api/show-discovery/${runId}/results`);
-      if (!res.ok) return;
-      const json = await readJsonSafe(res);
-      setResults((json?.results as ShowDiscoveryResult[]) ?? []);
-    } catch {
-      // ignore
-    }
+    const r = await apiFetch<{ results: ShowDiscoveryResult[] }>(`/api/show-discovery/${runId}/results`, { reporter: reportError });
+    if (r.ok) setResults(r.data.results ?? []);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -143,32 +112,25 @@ export default function ShowSearchPage() {
     setResults([]);
 
     startTransition(async () => {
-      try {
-        const res = await fetch("/api/show-discovery", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_prompt: prompt.trim() }),
-        });
-        const json = await readJsonSafe(res);
-        if (!res.ok) {
-          const serverError = typeof json?.error === "string" ? json.error : null;
-          setError(
-            serverError ??
-              `Suche konnte nicht gestartet werden (Status ${res.status}). Vercel-Logs pruefen.`,
-          );
-          return;
-        }
-        const runId = typeof json?.runId === "string" ? json.runId : null;
-        if (!runId) {
-          setError("Server-Antwort unerwartet leer. Vercel-Logs pruefen.");
-          return;
-        }
-        setActiveRunId(runId);
-        setActiveRun({ id: runId, status: "pending", current_phase: null, user_prompt: prompt.trim(), candidates_total: null, candidates_validated: null, candidates_added: null, model: null, tokens_in: null, tokens_out: null, web_search_uses: null, firecrawl_calls: null, error_message: null, created_at: new Date().toISOString(), finished_at: null });
-        loadPastRuns();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Netzwerkfehler beim Starten der Suche.");
+      const r = await apiFetch<{ runId: string }>("/api/show-discovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_prompt: prompt.trim() }),
+        reporter: reportError,
+        meta: { promptLength: prompt.trim().length },
+      });
+      if (!r.ok) {
+        setError(`${r.error} (Bug-Report unten rechts).`);
+        return;
       }
+      const runId = r.data.runId;
+      if (!runId) {
+        setError("Server-Antwort enthielt keine runId.");
+        return;
+      }
+      setActiveRunId(runId);
+      setActiveRun({ id: runId, status: "pending", current_phase: null, user_prompt: prompt.trim(), candidates_total: null, candidates_validated: null, candidates_added: null, model: null, tokens_in: null, tokens_out: null, web_search_uses: null, firecrawl_calls: null, error_message: null, created_at: new Date().toISOString(), finished_at: null });
+      loadPastRuns();
     });
   }
 
