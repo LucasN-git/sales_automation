@@ -20,6 +20,7 @@ const COLUMNS = [
   { header: "ISP-Sektor", key: "isp_sector_match", width: 22 },
   { header: "ISP-Lifecycle-Bedarf", key: "service_need", width: 28 },
   { header: "One-Liner", key: "one_liner", width: 45 },
+  { header: "Reasoning-Bullets", key: "reasoning_bullets", width: 50 },
   { header: "Business-Summary", key: "business_summary", width: 50 },
   { header: "Decision-Makers", key: "decision_makers", width: 35 },
   { header: "Recent-News", key: "recent_news", width: 35 },
@@ -84,6 +85,11 @@ export async function GET(
           ? (s.service_need as string[]).join(", ")
           : "",
         one_liner: (s?.one_liner as string) ?? "",
+        reasoning_bullets: Array.isArray(s?.reasoning_bullets)
+          ? (s.reasoning_bullets as string[])
+              .map((b) => `• ${b}`)
+              .join("\n")
+          : "",
         business_summary: (d?.business_summary as string) ?? "",
         decision_makers: (d?.decision_makers as string) ?? "",
         recent_news: (d?.recent_news as string) ?? "",
@@ -101,7 +107,7 @@ export async function GET(
   const ws = wb.addWorksheet("Aussteller");
 
   const showTitle = `ISP Power Systems — Aussteller-Analyse: ${show.name}${show.year ? ` ${show.year}` : ""}`;
-  ws.mergeCells("A1:S1");
+  ws.mergeCells("A1:T1");
   const titleCell = ws.getCell("A1");
   titleCell.value = showTitle;
   titleCell.font = { bold: true, size: 14, color: { argb: "FF0A0A0A" } };

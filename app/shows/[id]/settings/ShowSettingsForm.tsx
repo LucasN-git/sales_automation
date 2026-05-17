@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { GoldDot } from "@/components/brand/GoldDot";
 import { loading } from "@/components/LoadingBar";
@@ -53,8 +53,41 @@ export function ShowSettingsForm({
     initial.year !== null ? String(initial.year) : "",
   );
 
+  // Server-seitige Updates (z.B. via Orchestrator-Tool update_show_url) muessen
+  // die lokalen Inputs nachziehen, sobald router.refresh() neue Props liefert.
+  // Aber nur, wenn der User das Feld nicht gerade selbst editiert hat — sonst
+  // wuerden wir live mitten im Tippen seinen Text wegwerfen.
+  const lastSyncedName = useRef(initial.name);
+  const lastSyncedSourceUrl = useRef(initial.source_url);
+  const lastSyncedYear = useRef(initial.year !== null ? String(initial.year) : "");
+  const lastSyncedChat = useRef(initial.chat_context);
+
   // Chat-Kontext
   const [chatContext, setChatContext] = useState(initial.chat_context);
+
+  useEffect(() => {
+    if (initial.name !== lastSyncedName.current) {
+      const prev = lastSyncedName.current;
+      setName((current) => (current === prev ? initial.name : current));
+      lastSyncedName.current = initial.name;
+    }
+    if (initial.source_url !== lastSyncedSourceUrl.current) {
+      const prev = lastSyncedSourceUrl.current;
+      setSourceUrl((current) => (current === prev ? initial.source_url : current));
+      lastSyncedSourceUrl.current = initial.source_url;
+    }
+    const nextYear = initial.year !== null ? String(initial.year) : "";
+    if (nextYear !== lastSyncedYear.current) {
+      const prev = lastSyncedYear.current;
+      setYear((current) => (current === prev ? nextYear : current));
+      lastSyncedYear.current = nextYear;
+    }
+    if (initial.chat_context !== lastSyncedChat.current) {
+      const prev = lastSyncedChat.current;
+      setChatContext((current) => (current === prev ? initial.chat_context : current));
+      lastSyncedChat.current = initial.chat_context;
+    }
+  }, [initial.name, initial.source_url, initial.year, initial.chat_context]);
 
   // Crawl-Plan editable fields (only some strategies have these)
   const initialPlan = initial.crawl_plan;

@@ -55,7 +55,17 @@ Du kannst Aussteller **loeschen** (delete_exhibitors), **hinzufuegen** (add_exhi
 
 ## restart_pipeline — nur fuer kompletten Neustart
 
-restart_pipeline loescht ALLES und startet das Listing neu. Verwende es NUR wenn der User explizit sagt, er moechte das Listing neu einlesen / die Messe neu scrapen. Nicht fuer "alle Aussteller loeschen".`;
+restart_pipeline loescht ALLES und startet das Listing neu. Verwende es NUR wenn der User explizit sagt, er moechte das Listing neu einlesen / die Messe neu scrapen. Nicht fuer "alle Aussteller loeschen".
+
+## update_show_url — Aussteller-Listen-URL aendern
+
+Wenn der User eine neue Aussteller-Listen-URL nennt oder die bestehende korrigieren will, rufe **update_show_url** auf. Das setzt source_url auf der Messe und leert den bisherigen Crawl-Plan (da dieser auf der alten URL basiert).
+
+Danach typischerweise:
+1. **run_discovery** — neuer Plan auf der neuen URL
+2. **trigger_listing** — Aussteller mit dem neuen Plan holen
+
+Kein Bestaetungs-Widget noetig, direkt ausfuehren. Aber: wenn die Messe bereits Aussteller hat, vorher kurz anmerken dass der bisherige Plan und ggf. nicht-passende Aussteller-Daten verworfen werden sollten. Schlage delete_exhibitors vor falls die alten Aussteller zur alten URL gehoeren.`;
 
 // ---------------------------------------------------------------------------
 // Tool input types
@@ -71,7 +81,8 @@ export type OrchestratorToolInput =
   | { tool: "restart_pipeline"; input: { confirmed?: boolean } }
   | { tool: "delete_exhibitors"; input: { exhibitor_ids: string[]; reason: string } }
   | { tool: "add_exhibitor"; input: { company_name: string; website?: string; booth?: string; reason: string } }
-  | { tool: "regenerate_short"; input: { exhibitor_ids: string[] } };
+  | { tool: "regenerate_short"; input: { exhibitor_ids: string[] } }
+  | { tool: "update_show_url"; input: { url: string } };
 
 export type ToolResult = { summary: string; detail?: Record<string, unknown> };
 
@@ -212,6 +223,21 @@ export const ORCHESTRATOR_TOOL_DEFS = [
       required: ["exhibitor_ids"],
     },
   },
+  {
+    name: "update_show_url",
+    description:
+      "Setzt die Aussteller-Listen-URL (source_url) der Messe auf einen neuen Wert. Leert den bisherigen Crawl-Plan, da dieser auf der alten URL basiert. Verwende es wenn der User eine neue URL nennt oder eine bestehende korrigieren will. Danach typischerweise run_discovery + trigger_listing.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "Die neue Aussteller-Listen-URL (vollstaendig mit https://).",
+        },
+      },
+      required: ["url"],
+    },
+  },
 ] as const;
 
 export const ORCHESTRATOR_TOOL_NAMES = new Set(ORCHESTRATOR_TOOL_DEFS.map((t) => t.name));
@@ -300,6 +326,10 @@ export async function executePipelineTool(
         },
       };
     }
+    case "update_show_url": {
+      const { url } = (input ?? {}) as { url?: string };
+      return updateShowUrl(showId, url, supabase);
+    }
     case "regenerate_short": {
       const { exhibitor_ids } = (input ?? {}) as { exhibitor_ids?: string[] };
       if (!exhibitor_ids?.length) {
@@ -345,6 +375,53 @@ export async function executePipelineTool(
 // ---------------------------------------------------------------------------
 // Tool implementations
 // ---------------------------------------------------------------------------
+
+async function updateShowUrl(
+  showId: string,
+  url: string | undefined,
+  supabase: SupabaseClient,
+): Promise<ToolResult> {
+  const trimmed = typeof url === "string" ? url.trim() : "";
+  if (!trimmed) {
+    return { summary: "update_show_url: keine url uebergeben." };
+  }
+  // Auto-prepend https:// wenn das Schema fehlt (User-Input wie "foo.com/bar").
+  const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    new URL(normalized);
+  } catch {
+    return { summary: `update_show_url: ungueltige URL "${trimmed}".` };
+  }
+
+  const { data: before } = await supabase
+    .from("trade_shows")
+    .select("source_url")
+    .eq("id", showId)
+    .single();
+
+  const { error } = await supabase
+    .from("trade_shows")
+    .update({
+      source_url: normalized,
+      url_search_status: "done",
+      crawl_plan: null,
+      expected_exhibitor_count: null,
+    })
+    .eq("id", showId);
+  if (error) {
+    return { summary: `update_show_url: DB-Fehler (${error.message}).` };
+  }
+
+  await tryAppendLog(supabase, showId, {
+    phase: "discovery",
+    message: `Orchestrator: source_url aktualisiert (alt: ${before?.source_url ?? "leer"}, neu: ${normalized}). Crawl-Plan zurueckgesetzt.`,
+  });
+
+  return {
+    summary: `URL aktualisiert auf ${normalized}. Crawl-Plan wurde zurueckgesetzt. Rufe als naechstes run_discovery auf, danach trigger_listing.`,
+    detail: { url: normalized, previous_url: before?.source_url ?? null },
+  };
+}
 
 async function runDiscovery(
   showId: string,
