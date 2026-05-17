@@ -2,16 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { ISP_CATALOG } from "@/lib/isp-catalog";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { CompetitorsView, type CompetitorRow, type DiscoveryRun } from "./CompetitorsView";
-import { CompetitorLogView } from "./CompetitorLogView";
 import { HelpRequestButton } from "@/components/HelpRequestButton";
 
 export const dynamic = "force-dynamic";
-
-type ViewParam = "konkurrenten" | "log";
-const VIEWS: ViewParam[] = ["konkurrenten", "log"];
-function parseView(v: string | undefined): ViewParam {
-  return v && (VIEWS as string[]).includes(v) ? (v as ViewParam) : "konkurrenten";
-}
 
 type OverviewRow = {
   id: string;
@@ -49,13 +42,7 @@ type DiscoveryRunRow = {
   finished_at: string | null;
 };
 
-export default async function CompetitorsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ view?: string; run_id?: string }>;
-}) {
-  const sp = await searchParams;
-  const view = parseView(sp.view);
+export default async function CompetitorsPage() {
   const supabase = await createClient();
 
   const { data: competitorsData, error: cErr } = await supabase
@@ -80,7 +67,7 @@ export default async function CompetitorsPage({
       "id, status, current_phase, model, candidates_total, candidates_kept, tokens_in, tokens_out, web_search_uses, web_search_cost_usd, error_message, created_at, finished_at",
     )
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(5);
 
   const competitors: CompetitorRow[] = ((competitorsData ?? []) as OverviewRow[]).map(
     (r) => ({
@@ -132,35 +119,27 @@ export default async function CompetitorsPage({
         <p className="mt-3 text-body text-[var(--color-near-black)]/65 max-w-xl">
           Auto-discovered Wettbewerber von ISP Power Systems. Claude recherchiert
           mit Web-Search den Markt, du kuratierst die Vorschlaege. Akzeptierte
-          Konkurrenten landen in der Tier-Pipeline (Short / Deep) der zweiten Welle.
+          Konkurrenten landen in der Tier-Pipeline (Short / Deep).
         </p>
         <div className="mt-3 flex items-center gap-4 text-body-sm text-[var(--color-near-black)]/65 flex-wrap">
           <span className="tabular-nums">{totalCount} gesamt</span>
           <span className="tabular-nums">{suggestedCount} vorgeschlagen</span>
           <span className="tabular-nums">{activeCount} aktiv</span>
         </div>
+        <div className="mt-4">
+          <HelpRequestButton
+            source="competitors"
+            label="Konkurrenten-Analyse"
+            context={`Gesamt: ${totalCount}\nVorgeschlagen: ${suggestedCount}\nAktiv: ${activeCount}`}
+          />
+        </div>
       </header>
 
-      <div className="flex items-center gap-4 flex-wrap mb-10">
-        <p className="text-body-sm text-[var(--color-near-black)]/55">
-          Discovery und Analyse werden ueber den Chat rechts gesteuert.
-        </p>
-        <HelpRequestButton
-          source="competitors"
-          label="Konkurrenten-Analyse"
-          context={`Gesamt: ${totalCount}\nVorgeschlagen: ${suggestedCount}\nAktiv: ${activeCount}\nView: ${view}`}
-        />
-      </div>
-
-      {view === "log" ? (
-        <CompetitorLogView runId={sp.run_id} />
-      ) : (
-        <CompetitorsView
-          competitors={competitors}
-          runs={runs}
-          sectors={ISP_CATALOG.sectors}
-        />
-      )}
+      <CompetitorsView
+        competitors={competitors}
+        runs={runs}
+        sectors={ISP_CATALOG.sectors}
+      />
     </>
   );
 }

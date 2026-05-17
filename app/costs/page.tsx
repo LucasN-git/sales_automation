@@ -35,7 +35,7 @@ type ShowCost = {
 type CompetitorRun = {
   id: string;
   status: string;
-  model: string;
+  model: string | null;
   tokens_in: number;
   tokens_out: number;
   web_search_uses: number;
@@ -48,7 +48,7 @@ type ShowDiscoveryRun = {
   id: string;
   user_prompt: string;
   status: string;
-  model: string;
+  model: string | null;
   tokens_in: number;
   tokens_out: number;
   web_search_uses: number;
@@ -78,6 +78,14 @@ function formatDate(iso: string | null): string {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function modelShortLabel(model: string | null | undefined): string {
+  if (!model) return "—";
+  if (model.includes("haiku")) return "Haiku";
+  if (model.includes("sonnet")) return "Sonnet";
+  if (model.includes("opus")) return "Opus";
+  return model;
 }
 
 const ZERO_AGG: TokenAgg = { tin: 0, tout: 0, cnt: 0 };
@@ -124,7 +132,7 @@ export default async function CostsPage() {
     stats.competitor_discovery.web_search_cost_usd;
   // Show discovery: sum per-run using stored model
   const costShowDiscovery = stats.show_discovery_list.reduce((acc, r) => {
-    return acc + priceFor(r.model, r.tokens_in, r.tokens_out) + priceForWebSearch(r.web_search_uses);
+    return acc + priceFor(r.model ?? "", r.tokens_in, r.tokens_out) + priceForWebSearch(r.web_search_uses);
   }, 0);
   const costBrowser = priceForBrowserSec(stats.browser_seconds);
 
@@ -380,12 +388,8 @@ export default async function CostsPage() {
               </thead>
               <tbody>
                 {stats.competitor_runs.map((r, i) => {
-                  const rc = priceFor(r.model, r.tokens_in, r.tokens_out) + r.web_search_cost_usd;
-                  const modelShort = r.model.includes("haiku")
-                    ? "Haiku"
-                    : r.model.includes("sonnet")
-                    ? "Sonnet"
-                    : "Opus";
+                  const rc = priceFor(r.model ?? "", r.tokens_in, r.tokens_out) + r.web_search_cost_usd;
+                  const modelShort = modelShortLabel(r.model);
                   return (
                     <tr
                       key={r.id}
@@ -440,7 +444,7 @@ export default async function CostsPage() {
               </thead>
               <tbody>
                 {stats.show_discovery_list.map((r, i) => {
-                  const rc = priceFor(r.model, r.tokens_in, r.tokens_out) + priceForWebSearch(r.web_search_uses);
+                  const rc = priceFor(r.model ?? "", r.tokens_in, r.tokens_out) + priceForWebSearch(r.web_search_uses);
                   return (
                     <tr
                       key={r.id}

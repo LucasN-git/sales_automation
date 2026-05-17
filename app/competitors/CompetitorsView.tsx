@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { GoldDot } from "@/components/brand/GoldDot";
-import { priceFor } from "@/lib/pricing";
+import { ArrowRight } from "@/components/brand/Icons";
 
 export type CompetitorRow = {
   id: string;
@@ -65,8 +65,6 @@ export function CompetitorsView({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // Wenn ein Discovery-Run gerade laeuft, alle 6s refresh, damit neue Vorschlaege
-  // aus der DB nachgeladen werden, ohne dass der User klicken muss.
   const hasActiveRun = runs.some(
     (r) => r.status === "pending" || r.status === "running",
   );
@@ -125,31 +123,9 @@ export function CompetitorsView({
 
   return (
     <div>
-      {activeRun && (
-        <Link
-          href={`/competitors/runs/${activeRun.id}`}
-          className="mb-6 px-5 py-4 box-line border-l-2 border-l-[var(--color-gold)] bg-[var(--color-near-black)]/[0.02] flex items-center justify-between gap-3 hover:bg-[var(--color-near-black)]/[0.04] transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <GoldDot size={6} />
-            <span className="text-body-sm">
-              discovery-lauf {activeRun.status === "pending" ? "wird vorbereitet" : "laeuft"}
-              {activeRun.current_phase && (
-                <span className="ml-2 text-[var(--color-near-black)]/55">
-                  · {activeRun.current_phase}
-                </span>
-              )}
-            </span>
-          </div>
-          <span className="text-body-sm hover:text-[var(--color-gold)]">
-            live ansehen &rarr;
-          </span>
-        </Link>
-      )}
+      {activeRun && <ActiveRunBanner run={activeRun} />}
 
-      {runs.length > 0 && <RunHistoryBlock runs={runs} />}
-
-      <div className="flex flex-wrap items-center gap-4 mb-5">
+      <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="flex flex-wrap gap-1">
           {STATUS_TABS.map((tab) => {
             const active = filter === tab.key;
@@ -159,8 +135,8 @@ export function CompetitorsView({
                 onClick={() => setFilter(tab.key)}
                 className={`px-3 py-2 text-body-sm border transition-colors ${
                   active
-                    ? "border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.06] text-[var(--color-near-black)] font-semibold"
-                    : "border-[var(--border-color-soft)] text-[var(--color-near-black)]/70 hover:text-[var(--color-near-black)]"
+                    ? "border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.04] text-[var(--color-near-black)] font-semibold"
+                    : "border-[var(--border-color-soft)] text-[var(--color-near-black)]/70 hover:border-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)]"
                 }`}
               >
                 {tab.label}
@@ -176,7 +152,7 @@ export function CompetitorsView({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="suche name, domain, one-liner"
-            className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+            className="w-full bg-transparent border border-[var(--border-color-soft)] px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
           />
         </div>
         <div>
@@ -196,13 +172,13 @@ export function CompetitorsView({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="py-12 text-body text-[var(--color-near-black)]/60">
+        <div className="py-10 text-body text-[var(--color-near-black)]/55 box-line px-5">
           {filter === "suggested"
-            ? "keine vorschlaege. starte einen discovery-lauf oben."
+            ? "keine vorschlaege. starte eine neue analyse ueber den chat rechts."
             : "keine konkurrenten in dieser ansicht."}
         </div>
       ) : (
-        <ul className="mt-4 space-y-2">
+        <ul className="space-y-2">
           {filtered.map((c) => (
             <li key={c.id} className="relative">
               <Link
@@ -213,8 +189,8 @@ export function CompetitorsView({
                   <div className="flex items-start gap-4 min-w-0 flex-1">
                     <ThreatPill level={c.threat_level} />
                     <div className="min-w-0">
-                      <span className="text-title block">{c.display_name}</span>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                      <span className="text-subtitle block leading-snug">{c.display_name}</span>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
                         {c.domain && (
                           <span className="text-meta text-[var(--color-near-black)]/55">
                             {c.domain}
@@ -229,7 +205,7 @@ export function CompetitorsView({
                           <span className="text-meta text-[var(--color-near-black)]/40">
                             {c.isp_sector_match
                               .map((sid) => sectorMap[sid] ?? sid)
-                              .join(" · ")}
+                              .join(" , ")}
                           </span>
                         )}
                       </div>
@@ -242,11 +218,12 @@ export function CompetitorsView({
                   </div>
                   <div className="flex items-center gap-3 shrink-0 self-start pt-px">
                     <StatusBadge status={c.status} />
+                    <ArrowRight size={13} className="text-[var(--color-near-black)]/30" />
                   </div>
                 </div>
               </Link>
               <div
-                className="absolute top-1/2 right-4 -translate-y-1/2"
+                className="absolute top-1/2 right-12 -translate-y-1/2"
                 onClick={(e) => e.stopPropagation()}
               >
                 <CurateActions
@@ -260,6 +237,31 @@ export function CompetitorsView({
         </ul>
       )}
     </div>
+  );
+}
+
+function ActiveRunBanner({ run }: { run: DiscoveryRun }) {
+  return (
+    <Link
+      href={`/competitors/runs/${run.id}`}
+      className="mb-6 px-5 py-3 box-line border-l-2 border-l-[var(--color-gold)] bg-[var(--color-near-black)]/[0.02] flex items-center justify-between gap-3 hover:bg-[var(--color-near-black)]/[0.04] transition-colors"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <GoldDot size={6} />
+        <span className="text-body-sm">
+          analyse {run.status === "pending" ? "wird vorbereitet" : "laeuft"}
+          {run.current_phase && (
+            <span className="ml-2 text-[var(--color-near-black)]/55">
+              , {run.current_phase}
+            </span>
+          )}
+        </span>
+      </div>
+      <span className="text-meta text-[var(--color-near-black)]/55 inline-flex items-center gap-1.5 shrink-0">
+        zum prozess
+        <ArrowRight size={12} />
+      </span>
+    </Link>
   );
 }
 
@@ -286,101 +288,6 @@ function ThreatPill({ level }: { level: CompetitorRow["threat_level"] }) {
       {t.label}
     </span>
   );
-}
-
-function RunHistoryBlock({ runs }: { runs: DiscoveryRun[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? runs : runs.slice(0, 3);
-  return (
-    <div className="mb-6 border-t border-b border-[var(--border-color-soft)] py-5">
-      <div className="flex items-baseline justify-between mb-3">
-        <span className="text-meta-strong">letzte discovery-laeufe</span>
-        {runs.length > 3 && (
-          <button
-            onClick={() => setExpanded((x) => !x)}
-            className="text-meta hover:text-[var(--color-near-black)] transition-colors"
-          >
-            {expanded ? "weniger" : `alle ${runs.length}`}
-          </button>
-        )}
-      </div>
-      <ul className="space-y-2">
-        {visible.map((r) => (
-          <li key={r.id}>
-            <Link
-              href={`/competitors/runs/${r.id}`}
-              className="flex items-center justify-between gap-3 py-1 hover:text-[var(--color-near-black)] transition-colors"
-            >
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <RunStatusBadge status={r.status} />
-                <span className="text-body-sm tabular-nums text-[var(--color-near-black)]/70">
-                  {formatDate(r.created_at)}
-                </span>
-                <span className="text-body-sm text-[var(--color-near-black)]/85 truncate">
-                  {r.candidates_total !== null
-                    ? `${r.candidates_kept ?? 0} / ${r.candidates_total} Vorschlaege`
-                    : r.status === "failed"
-                    ? r.error_message ?? "fehlgeschlagen"
-                    : "..."}
-                </span>
-              </div>
-              <span className="text-meta tabular-nums text-[var(--color-near-black)]/55 whitespace-nowrap">
-                {formatRunCost(r)}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function RunStatusBadge({ status }: { status: DiscoveryRun["status"] }) {
-  const map: Record<DiscoveryRun["status"], { label: string; cls: string }> = {
-    pending: {
-      label: "wartet",
-      cls: "border-[var(--border-color-soft)] text-[var(--color-near-black)]/60",
-    },
-    running: {
-      label: "laeuft",
-      cls: "border-[var(--color-gold)] text-[var(--color-near-black)]/80",
-    },
-    done: {
-      label: "ok",
-      cls: "border-[var(--color-near-black)]/30 text-[var(--color-near-black)]/70",
-    },
-    failed: {
-      label: "fehler",
-      cls: "border-[var(--color-near-black)] text-[var(--color-near-black)]",
-    },
-  };
-  const s = map[status];
-  return (
-    <span className={`px-2 py-0.5 text-meta border ${s.cls} whitespace-nowrap`}>
-      {s.label}
-    </span>
-  );
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("de-DE", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatRunCost(r: DiscoveryRun): string {
-  const tokenCost =
-    r.model && (r.tokens_in !== null || r.tokens_out !== null)
-      ? priceFor(r.model, r.tokens_in ?? 0, r.tokens_out ?? 0)
-      : 0;
-  const wsCost = r.web_search_cost_usd ?? 0;
-  const total = tokenCost + wsCost;
-  if (total === 0) return "";
-  if (total < 0.01) return "<0.01 $";
-  return `${total.toFixed(2)} $`;
 }
 
 function StatusBadge({ status }: { status: CompetitorRow["status"] }) {

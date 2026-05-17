@@ -103,50 +103,61 @@ export function ShowDiscoveryResultCard({
   }
 
   return (
-    <div className="card-surface p-5">
+    <div className="box-line px-5 py-5 hover:bg-[var(--color-near-black)]/[0.015] transition-colors">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-3">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-start gap-4 min-w-0">
           <span
-            className="text-meta-strong shrink-0 tabular-nums"
+            className="text-meta-strong shrink-0 tabular-nums pt-0.5"
             style={{ color: scoreColor }}
           >
             {score}/10
           </span>
-          <h3 className="text-body font-semibold leading-tight">{result.name}</h3>
+          <div className="min-w-0">
+            <h3 className="text-subtitle leading-snug">{result.name}</h3>
+            {/* Meta row directly under name */}
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+              {locationParts && (
+                <span className="text-meta text-[var(--color-near-black)]/55">
+                  {locationParts}
+                </span>
+              )}
+              {dateDisplay && (
+                <span className="text-meta text-[var(--color-near-black)]/55">
+                  {dateDisplay}
+                </span>
+              )}
+              {result.is_recurring && result.recurrence_note && (
+                <span className="text-meta text-[var(--color-near-black)]/55">
+                  {result.recurrence_note}
+                </span>
+              )}
+              {result.isp_sector_match && result.isp_sector_match.length > 0 && (
+                <span className="text-meta text-[var(--color-near-black)]/40">
+                  {result.isp_sector_match.join(" , ")}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
         {added ? (
           <a
             href={`/shows/${added}`}
             className="shrink-0 text-meta text-[var(--color-gold)] hover:underline"
           >
-            zur Messe →
+            zur Messe &rarr;
           </a>
         ) : null}
       </div>
 
-      {/* Meta row */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-body-sm text-[var(--color-near-black)]/65">
-        {locationParts && <span>{locationParts}</span>}
-        {dateDisplay && <span>{dateDisplay}</span>}
-        {result.is_recurring && result.recurrence_note && (
-          <span>{result.recurrence_note}</span>
-        )}
-        {result.isp_sector_match && result.isp_sector_match.length > 0 && (
-          <span className="text-meta">
-            {result.isp_sector_match.join(" · ")}
-          </span>
-        )}
-      </div>
-
       {/* Focus + Audience */}
       {result.focus_description && (
-        <p className="text-body-sm text-[var(--color-near-black)]/80 mb-1">
+        <p className="text-body-sm text-[var(--color-near-black)]/80 mt-2 leading-snug">
           {result.focus_description}
         </p>
       )}
       {result.target_audience && (
-        <p className="text-body-sm text-[var(--color-near-black)]/65 mb-3">
+        <p className="text-body-sm text-[var(--color-near-black)]/55 mt-1 leading-snug">
           Publikum: {result.target_audience}
         </p>
       )}
@@ -154,7 +165,7 @@ export function ShowDiscoveryResultCard({
       {/* Relevance reasoning */}
       {result.relevance_reasoning && (
         <div
-          className="text-body-sm text-[var(--color-near-black)]/80 mb-3 space-y-0.5"
+          className="text-body-sm text-[var(--color-near-black)]/75 mt-3 space-y-0.5"
           dangerouslySetInnerHTML={{
             __html: result.relevance_reasoning
               .split("\n")
@@ -171,7 +182,7 @@ export function ShowDiscoveryResultCard({
 
       {/* Firecrawl validation badge */}
       {result.firecrawl_status === "done" && (
-        <div className="mb-3 text-meta text-[var(--color-near-black)]/65 flex items-center gap-3">
+        <div className="mt-3 text-meta text-[var(--color-near-black)]/65 flex items-center gap-3">
           <span
             className="inline-block w-2 h-2 shrink-0"
             style={{ background: "var(--color-gold)" }}
@@ -193,7 +204,7 @@ export function ShowDiscoveryResultCard({
 
       {/* Evidence URLs */}
       {result.evidence_urls.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           {result.evidence_urls.slice(0, 3).map((url, i) => (
             <a
               key={i}
@@ -211,21 +222,21 @@ export function ShowDiscoveryResultCard({
 
       {/* Error */}
       {error && (
-        <div className="mb-3 text-body-sm text-[var(--color-near-black)]/70">{error}</div>
+        <div className="mt-3 text-body-sm text-[var(--color-near-black)]/70">{error}</div>
       )}
 
       {/* Actions */}
       {!added && (
-        <div className="flex items-center gap-4 pt-3 border-t border-[var(--color-hairline-light)]">
+        <div className="mt-4 pt-3 border-t border-[var(--border-color-soft)] flex items-center gap-4">
           <button
             onClick={handleConfirm}
-            className="px-4 py-2 text-body-sm font-semibold border border-[var(--color-near-black)]/35 rounded-md text-[var(--color-near-black)]/70 hover:border-[var(--color-near-black)] hover:text-[var(--color-near-black)] transition-all duration-150"
+            className="px-4 py-2 text-body-sm font-semibold border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] transition-colors"
           >
-            + zur Messeliste
+            zur Messeliste
           </button>
           <button
             onClick={handleDismiss}
-            className="text-body-sm text-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)]/70 transition-colors"
+            className="text-body-sm text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
           >
             ignorieren
           </button>

@@ -22,11 +22,13 @@ const DISCOVERY_RUN_VIEWS: { id: DiscoveryRunView; label: string }[] = [
   { id: "kosten", label: "Kosten" },
 ];
 
-type CompetitorListView = "konkurrenten" | "log";
+type ShowSearchRunView = "ergebnisse" | "prozess" | "log" | "kosten";
 
-const COMPETITOR_LIST_VIEWS: { id: CompetitorListView; label: string }[] = [
-  { id: "konkurrenten", label: "Konkurrenten" },
+const SHOW_SEARCH_RUN_VIEWS: { id: ShowSearchRunView; label: string }[] = [
+  { id: "ergebnisse", label: "Ergebnisse" },
+  { id: "prozess", label: "Prozess" },
   { id: "log", label: "Log" },
+  { id: "kosten", label: "Kosten" },
 ];
 
 type CompetitorDetailView = "intel" | "verlauf" | "kunden" | "einstellungen";
@@ -49,8 +51,10 @@ function parseShowId(pathname: string | null): string | null {
   return id;
 }
 
-function isShowSearch(pathname: string | null): boolean {
-  return pathname === "/shows/search";
+function parseShowSearchRunId(pathname: string | null): string | null {
+  if (!pathname) return null;
+  const m = pathname.match(/^\/shows\/search\/runs\/([^/]+)/);
+  return m ? m[1] : null;
 }
 
 function parseCompanyId(pathname: string | null): string | null {
@@ -63,10 +67,6 @@ function parseDiscoveryRunId(pathname: string | null): string | null {
   if (!pathname) return null;
   const m = pathname.match(/^\/competitors\/runs\/([^/]+)/);
   return m ? m[1] : null;
-}
-
-function isCompetitorList(pathname: string | null): boolean {
-  return pathname === "/competitors";
 }
 
 // Static route segments under /competitors/ that are not competitor UUIDs
@@ -86,43 +86,50 @@ export function SidebarContextSection({
   onNavigate?: () => void;
 } = {}) {
   const pathname = usePathname();
+  const showSearchRunId = parseShowSearchRunId(pathname);
   const showId = parseShowId(pathname);
   const companyId = parseCompanyId(pathname);
   const runId = parseDiscoveryRunId(pathname);
   const competitorId = parseCompetitorId(pathname);
 
-  if (isShowSearch(pathname)) return <ShowSearchContextNav onNavigate={onNavigate} />;
+  // Order matters: more specific routes first.
+  if (showSearchRunId) return <ShowSearchRunContextNav runId={showSearchRunId} onNavigate={onNavigate} />;
   if (showId) return <ShowContextNav showId={showId} pathname={pathname ?? ""} onNavigate={onNavigate} />;
   if (companyId) return <CompanyContextNav onNavigate={onNavigate} />;
   if (runId) return <DiscoveryRunContextNav runId={runId} onNavigate={onNavigate} />;
   if (competitorId) return <CompetitorDetailContextNav competitorId={competitorId} onNavigate={onNavigate} />;
-  if (isCompetitorList(pathname)) return <CompetitorListContextNav onNavigate={onNavigate} />;
+  // /shows/search list page and /competitors list page have no sidebar tabs.
   return null;
 }
 
-const SHOW_SEARCH_VIEWS: { id: string; label: string }[] = [
-  { id: "prozess", label: "Prozess" },
-  { id: "log", label: "Log" },
-  { id: "kosten", label: "Kosten" },
-];
-
-function ShowSearchContextNav({ onNavigate }: { onNavigate?: () => void }) {
+function ShowSearchRunContextNav({
+  runId,
+  onNavigate,
+}: {
+  runId: string;
+  onNavigate?: () => void;
+}) {
   const searchParams = useSearchParams();
-  const activeView = searchParams.get("view") ?? "prozess";
+  const activeView =
+    (searchParams.get("view") as ShowSearchRunView | null) ?? "ergebnisse";
 
   return (
     <div className="px-3 py-3 border-t border-[var(--border-color-soft)]">
       <NavLink
-        href="/shows"
+        href="/shows/search"
         onClick={onNavigate}
         className="block px-3 py-1.5 text-meta hover:text-[var(--color-near-black)] transition-colors"
       >
-        &larr; zur Messen-Liste
+        &larr; zur Lauf-Liste
       </NavLink>
+
       <ul className="mt-2 space-y-0">
-        {SHOW_SEARCH_VIEWS.map((v) => {
+        {SHOW_SEARCH_RUN_VIEWS.map((v) => {
           const active = activeView === v.id;
-          const href = v.id === "prozess" ? "/shows/search" : `/shows/search?view=${v.id}`;
+          const href =
+            v.id === "ergebnisse"
+              ? `/shows/search/runs/${runId}`
+              : `/shows/search/runs/${runId}?view=${v.id}`;
           return (
             <li key={v.id}>
               <NavLink
@@ -217,38 +224,6 @@ function CompanyContextNav({ onNavigate }: { onNavigate?: () => void }) {
       >
         &larr; zur Unternehmens-Liste
       </NavLink>
-    </div>
-  );
-}
-
-function CompetitorListContextNav({ onNavigate }: { onNavigate?: () => void }) {
-  const searchParams = useSearchParams();
-  const activeView = searchParams.get("view") ?? "konkurrenten";
-
-  return (
-    <div className="px-3 py-3 border-t border-[var(--border-color-soft)]">
-      <ul className="space-y-0">
-        {COMPETITOR_LIST_VIEWS.map((v) => {
-          const active = activeView === v.id;
-          const href =
-            v.id === "konkurrenten" ? "/competitors" : `/competitors?view=${v.id}`;
-          return (
-            <li key={v.id}>
-              <NavLink
-                href={href}
-                onClick={onNavigate}
-                className={`block px-3 py-1.5 text-body-sm transition-colors border-l-2 ${
-                  active
-                    ? "border-[var(--color-near-black)] text-[var(--color-near-black)] font-semibold"
-                    : "border-transparent text-[var(--color-near-black)]/65 hover:text-[var(--color-near-black)]"
-                }`}
-              >
-                {v.label}
-              </NavLink>
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
