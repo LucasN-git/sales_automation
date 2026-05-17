@@ -844,7 +844,7 @@ export const profileEnrichBulk = inngest.createFunction(
 export const exhibitorProfileEnrich = inngest.createFunction(
   {
     id: "exhibitor-profile-enrich",
-    concurrency: { limit: 8 },
+    concurrency: { limit: 5 },
     throttle: { limit: 60, period: "1m" },
     retries: 2,
   },

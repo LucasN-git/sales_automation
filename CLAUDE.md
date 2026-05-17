@@ -199,7 +199,7 @@ Editierbare Deep-Felder: `business_summary`, `decision_makers`, `recent_news`, `
 | `exhibitor-short` | `exhibitor.short.requested` | 5 | 30/min | 4 |
 | `exhibitor-deep` | `exhibitor.deep.requested` | 3 | — | 2 |
 | `profile-enrich-bulk` | `profile-enrich.bulk-requested` | — | — | 1 |
-| `exhibitor-profile-enrich` | `exhibitor.profile.enrich.requested` | 8 | 60/min | 2 |
+| `exhibitor-profile-enrich` | `exhibitor.profile.enrich.requested` | 5 | 60/min | 2 |
 | `manual-enrich-chain` | `exhibitor.manual.enrich.requested` | — | — | 1 |
 | `competitor-discovery` | `competitor.discovery.requested` | 1 per userId | 5/min per userId | 0 |
 | `competitor-short-bulk` | `competitor.short.bulk-requested` | — | — | 1 |
