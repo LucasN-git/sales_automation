@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -76,15 +75,6 @@ export default async function CompetitorRunPage({
   return (
     <>
       {isLive && <AutoRefresh intervalMs={4000} />}
-
-      <div className="mb-6 text-meta">
-        <Link
-          href="/competitors"
-          className="hover:text-[var(--color-near-black)] transition-colors"
-        >
-          ← Konkurrenten
-        </Link>
-      </div>
 
       <header className="mb-10">
         <h1 className="text-display">
