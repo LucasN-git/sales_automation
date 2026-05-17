@@ -16,7 +16,7 @@ export type CompetitorRow = {
   source_event: string | null;
   one_liner: string | null;
   isp_sector_match: string[];
-  threat_level: "low" | "medium" | "high" | null;
+  threat_level: "low" | "medium" | "high" | "critical" | null;
   version_count: number;
   created_at: string;
 };
@@ -128,7 +128,7 @@ export function CompetitorsView({
       {activeRun && (
         <Link
           href={`/competitors/runs/${activeRun.id}`}
-          className="mb-6 px-5 py-4 border-l-2 border-[var(--color-gold)] bg-[var(--color-near-black)]/[0.03] flex items-center justify-between gap-3 hover:bg-[var(--color-near-black)]/[0.05] transition-colors"
+          className="mb-6 px-5 py-4 box-line border-l-2 border-l-[var(--color-gold)] bg-[var(--color-near-black)]/[0.02] flex items-center justify-between gap-3 hover:bg-[var(--color-near-black)]/[0.04] transition-colors"
         >
           <div className="flex items-center gap-3">
             <GoldDot size={6} />
@@ -195,8 +195,6 @@ export function CompetitorsView({
         </div>
       </div>
 
-      <div className="border-t border-[var(--border-color-soft)]" />
-
       {filtered.length === 0 ? (
         <div className="py-12 text-body text-[var(--color-near-black)]/60">
           {filter === "suggested"
@@ -206,62 +204,87 @@ export function CompetitorsView({
       ) : (
         <ul className="mt-4 space-y-2">
           {filtered.map((c) => (
-            <li
-              key={c.id}
-              className="px-5 py-4 border-b border-[var(--border-color-soft)] flex items-start gap-4 flex-wrap"
-            >
-              <div className="flex-1 min-w-[200px]">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-body font-semibold">{c.display_name}</span>
-                  {c.domain && (
-                    <a
-                      href={c.website ?? `https://${c.domain}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-meta text-[var(--color-near-black)]/55 hover:text-[var(--color-gold)]"
-                    >
-                      {c.domain}
-                    </a>
-                  )}
-                  {c.hq_country && (
-                    <span className="text-meta text-[var(--color-near-black)]/55">
-                      {c.hq_country}
-                    </span>
-                  )}
-                  <StatusBadge status={c.status} />
+            <li key={c.id} className="relative">
+              <Link
+                href={`/competitors/${c.id}`}
+                className="block px-5 py-4 pr-44 box-line hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
+              >
+                <div className="flex items-start justify-between gap-6">
+                  <div className="flex items-start gap-4 min-w-0 flex-1">
+                    <ThreatPill level={c.threat_level} />
+                    <div className="min-w-0">
+                      <span className="text-title block">{c.display_name}</span>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                        {c.domain && (
+                          <span className="text-meta text-[var(--color-near-black)]/55">
+                            {c.domain}
+                          </span>
+                        )}
+                        {c.hq_country && (
+                          <span className="text-meta text-[var(--color-near-black)]/55">
+                            {c.hq_country}
+                          </span>
+                        )}
+                        {c.isp_sector_match.length > 0 && (
+                          <span className="text-meta text-[var(--color-near-black)]/40">
+                            {c.isp_sector_match
+                              .map((sid) => sectorMap[sid] ?? sid)
+                              .join(" · ")}
+                          </span>
+                        )}
+                      </div>
+                      {c.one_liner && (
+                        <p className="text-body-sm text-[var(--color-near-black)]/65 mt-1.5 leading-snug">
+                          {c.one_liner}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 self-start pt-px">
+                    <StatusBadge status={c.status} />
+                  </div>
                 </div>
-                {c.one_liner && (
-                  <p className="mt-1 text-body-sm text-[var(--color-near-black)]/75">
-                    {c.one_liner}
-                  </p>
-                )}
-                <div className="mt-2 flex items-center gap-2 flex-wrap">
-                  {c.isp_sector_match.map((sid) => (
-                    <span
-                      key={sid}
-                      className="px-2 py-1 text-meta border border-[var(--border-color-soft)] text-[var(--color-near-black)]/70"
-                    >
-                      {sectorMap[sid] ?? sid}
-                    </span>
-                  ))}
-                  {c.threat_level && (
-                    <span className="text-meta text-[var(--color-near-black)]/55">
-                      threat: {c.threat_level}
-                    </span>
-                  )}
-                </div>
+              </Link>
+              <div
+                className="absolute top-1/2 right-4 -translate-y-1/2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <CurateActions
+                  row={c}
+                  pending={pendingId === c.id}
+                  onCurate={(s) => curate(c.id, s)}
+                />
               </div>
-
-              <CurateActions
-                row={c}
-                pending={pendingId === c.id}
-                onCurate={(s) => curate(c.id, s)}
-              />
             </li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+function ThreatPill({ level }: { level: CompetitorRow["threat_level"] }) {
+  if (!level) {
+    return (
+      <span className="text-meta-strong shrink-0 tabular-nums pt-px text-[var(--color-near-black)]/30">
+        --
+      </span>
+    );
+  }
+  const map: Record<NonNullable<CompetitorRow["threat_level"]>, { label: string; color: string }> = {
+    low: { label: "low", color: "rgba(10,10,10,0.4)" },
+    medium: { label: "med", color: "rgba(10,10,10,0.7)" },
+    high: { label: "hi", color: "var(--color-gold)" },
+    critical: { label: "crit", color: "var(--color-error)" },
+  };
+  const t = map[level];
+  return (
+    <span
+      className="text-meta-strong shrink-0 pt-px"
+      style={{ color: t.color }}
+    >
+      {t.label}
+    </span>
   );
 }
 
