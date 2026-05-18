@@ -3,6 +3,7 @@ export type ExhibitorLite = {
   short_status: string;
   deep_status: string;
   current_step: string | null;
+  pre_filter_status: string | null;
 };
 
 export type LogEntry = {

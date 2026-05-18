@@ -11,6 +11,7 @@ export function BulkOverviewButton({
   showId,
   pendingCount,
   runningCount,
+  preFilterActive,
   perCallUsd,
   estimateHistorical,
   model,
@@ -18,6 +19,7 @@ export function BulkOverviewButton({
   showId: string;
   pendingCount: number;
   runningCount: number;
+  preFilterActive: boolean;
   perCallUsd: number;
   estimateHistorical: boolean;
   model: string;
@@ -43,12 +45,13 @@ export function BulkOverviewButton({
     }
   }, [pretendRunning, isRunning, pendingCount]);
 
-  if (pendingCount === 0 && runningCount === 0 && !pretendRunning) return null;
+  if (pendingCount === 0 && runningCount === 0 && !pretendRunning && !preFilterActive) return null;
 
   const showRunning = isRunning || pretendRunning;
 
   let label: string;
   if (busy) label = "wird gestartet";
+  else if (preFilterActive) label = "pre-filter laeuft noch...";
   else if (showRunning) label = isRunning ? `short laeuft (${runningCount})` : "short-overviews laufen";
   else label = `short-overviews fuer ${pendingCount} starten`;
 
@@ -82,8 +85,8 @@ export function BulkOverviewButton({
     <div className="flex items-center gap-3">
       <button
         onClick={handleClick}
-        disabled={busy || showRunning}
-        title={tooltip}
+        disabled={busy || showRunning || preFilterActive}
+        title={preFilterActive ? "Pre-Filter laeuft noch. Bitte warten bis die Vorfilterung abgeschlossen ist." : tooltip}
         className="inline-flex items-center gap-2 text-ui-sm px-3 py-1.5 border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] font-semibold hover:text-[var(--color-gold)] hover:scale-[1.05] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
       >
         <span>{label}</span>

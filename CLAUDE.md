@@ -723,3 +723,48 @@ Kosten-Check nach Echt-Lauf:
 - **Neue Inngest-Function:** in `lib/inngest/functions.ts` anlegen + in `functions`-Array am Ende eintragen. Event-Name-Konvention: `<domain>.<action>.<modifier>` (z.B. `exhibitor.short.requested`).
 - **Neue API-Route mit Supabase:** `createClient()` (User-scoped, RLS) fur User-Routes. `createServiceRoleClient()` (Admin, bypasses RLS) nur in Inngest-Functions.
 - **Neue Migrationen:** Nummerierung streng aufsteigend, idempotent schreiben.
+
+---
+
+## Manuelle Listings (`manuelle_listings/`)
+
+Ordner fur CSV-Exporte von Aussteller-Listen, die nicht automatisch per Crawler geholt werden konnten (z.B. dynamische Seiten, Login-Gates, bereits besuchte Messen).
+
+### CSV-Format
+
+Separator: Komma `,` oder Semikolon `;` — wird automatisch erkannt.
+Encoding: UTF-8.
+Erste Zeile: Header-Zeile (Reihenfolge egal).
+
+| Spalten-Name (case-insensitiv) | Aliases | Pflicht | Ziel-Column |
+|---|---|---|---|
+| `name` | `company_name`, `firma`, `aussteller` | **ja** | `exhibitors.company_name` |
+| `website` | `url`, `homepage`, `web` | nein | `exhibitors.website` |
+| `booth` | `stand`, `booth_number`, `stand_nr` | nein | `exhibitors.booth` |
+| `profile_url` | `profil_url`, `exhibitor_url`, `detail_url` | nein | `exhibitors.profile_url` |
+| `linkedin_url` | `linkedin` | nein | `exhibitors.linkedin_url` |
+| `country` | — | nein | (nur im CSV, kein DB-Feld auf exhibitors) |
+
+Alle anderen Spalten werden ignoriert. Zeilen ohne Name werden übersprungen.
+
+### Import-Flow
+
+1. Im Tool eine Show öffnen (oder neu anlegen ohne URL).
+2. Button **"csv import"** in der Show-Toolbar klicken.
+3. CSV wählen → Vorschau (Anzahl + erste 5 Zeilen) prüfen.
+4. Bestätigen → Aussteller werden als `short_status=pending` inserted.
+5. Danach normal weiter: URL-Search starten (fur Aussteller ohne Website), dann Short-Overview.
+
+### Hinweise
+
+- `company_id` wird beim CSV-Import **nicht** gesetzt (kein `ensureCompany`-Call). Companies werden beim ersten Inngest-Run (Short oder manuell) nachgezogen.
+- Doppelte Firmen-Namen innerhalb desselben Imports werden alle inserted — keine Deduplizierung im Import selbst.
+- Route: `POST /api/shows/[id]/exhibitors/csv-import` (multipart/form-data, field `file`).
+- Client: `app/shows/[id]/CsvImportButton.tsx`, Server: `app/api/shows/[id]/exhibitors/csv-import/route.ts`.
+
+### Vorhandene Listen
+
+| Datei | Messe | Aussteller | Quelle | Datum |
+|---|---|---|---|---|
+| `euronaval_2024_aussteller.csv` | Euronaval 2024 (Le Bourget du Lac) | 429 | euronaval.com/euronaval_exhibitors/ URL-Map | 2026-05-18 |
+- **Neue Migrationen:** Nummerierung streng aufsteigend, idempotent schreiben.

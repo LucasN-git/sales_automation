@@ -57,6 +57,15 @@ export function PhasesView({
     (e) => e.deep_status === "running" || e.deep_status === "pending",
   ).length;
 
+  const preFilterPassed = exhibitors.filter((e) => e.pre_filter_status === "passed").length;
+  const preFilterOut = exhibitors.filter((e) => e.pre_filter_status === "filtered_out").length;
+  const preFilterRunning = exhibitors.filter((e) => e.pre_filter_status === "running").length;
+  const preFilterPending = exhibitors.filter(
+    (e) => !e.pre_filter_status || e.pre_filter_status === "pending",
+  ).length;
+  const preFilterDecided = preFilterPassed + preFilterOut;
+  const preFilterInProgress = preFilterRunning + preFilterPending;
+
   const planExists = !!crawlPlan;
   const listingDone = total > 0;
   const listingFailed = showStatus === "failed" && total === 0;
@@ -100,6 +109,14 @@ export function PhasesView({
 
   const phase3Status: Phase["status"] = deepDone > 0 ? "done" : deepRunning > 0 ? "running" : "pending";
 
+  const preFilterStatus: Phase["status"] = !listingDone
+    ? "pending"
+    : preFilterInProgress > 0
+    ? "running"
+    : preFilterDecided > 0
+    ? "done"
+    : "pending";
+
   const phases: Phase[] = [
     {
       num: "00",
@@ -129,6 +146,22 @@ export function PhasesView({
     },
     {
       num: "02",
+      label: "Pre-Filter",
+      status: preFilterStatus,
+      detail: !listingDone
+        ? "Wartet auf Listing"
+        : preFilterInProgress > 0
+        ? `${preFilterDecided}/${total} bewertet${preFilterRunning > 0 ? `, ${preFilterRunning} laufen` : ""}`
+        : preFilterDecided > 0
+        ? `${preFilterPassed} relevant, ${preFilterOut} rausgefiltert`
+        : "Wartet auf Start",
+      sub:
+        preFilterRunning > 0
+          ? [`Sonnet bewertet Aussteller in Batches a 25`]
+          : undefined,
+    },
+    {
+      num: "03",
       label: "Short-Overviews",
       status: phase2Status,
       detail: listingDone
@@ -144,7 +177,7 @@ export function PhasesView({
           : undefined,
     },
     {
-      num: "03",
+      num: "04",
       label: "Deep-Dives (manuell)",
       status: phase3Status,
       detail: deepDone > 0

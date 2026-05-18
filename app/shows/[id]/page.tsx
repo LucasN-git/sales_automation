@@ -27,6 +27,7 @@ import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { SettingsIcon } from "@/components/brand/Icons";
 import { RefreshButton } from "@/components/RefreshButton";
 import { HelpRequestButton } from "@/components/HelpRequestButton";
+import { CsvImportButton } from "./CsvImportButton";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,7 @@ export default async function ShowDetailPage({
     short_status: e.short_status,
     deep_status: e.deep_status,
     current_step: e.current_step,
+    pre_filter_status: e.pre_filter_status ?? null,
   }));
 
   const crawlPlan =
@@ -112,6 +114,7 @@ export default async function ShowDetailPage({
   const shortRunning = counts.shortRunning;
   const shortPending = counts.shortPending;
   const shortFailed = counts.shortFailed;
+  const preFilterActive = counts.preFilterRunning > 0;
 
   type Stats = { tin: number; tout: number; cnt: number };
   const shortStats = (tokenStatsData as { short?: Stats } | null)?.short ?? null;
@@ -185,11 +188,13 @@ export default async function ShowDetailPage({
             showId={id}
             pendingCount={shortPending + shortFailed}
             runningCount={shortRunning}
+            preFilterActive={preFilterActive}
             perCallUsd={shortPerCallUsd}
             estimateHistorical={shortEstimateHistorical}
             model={shortModel}
           />
           {!show.crawl_plan && <RestartButton showId={id} />}
+          <CsvImportButton showId={id} />
           <a
             href={`/api/shows/${id}/export`}
             className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"

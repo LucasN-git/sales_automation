@@ -7,6 +7,7 @@ export type ExhibitorStatusRow = {
   short_status: string;
   deep_status: string;
   current_step: string | null;
+  pre_filter_status: string | null;
 };
 
 /**
@@ -21,7 +22,7 @@ export const getShowExhibitorStatus = cache(
     const supabase = await createClient();
     const { data } = await supabase
       .from("exhibitors")
-      .select("id, company_name, short_status, deep_status, current_step")
+      .select("id, company_name, short_status, deep_status, current_step, pre_filter_status")
       .eq("trade_show_id", showId);
     return (data ?? []) as ExhibitorStatusRow[];
   },
@@ -36,6 +37,10 @@ export type StatusCounts = {
   deepDone: number;
   deepRunning: number;
   deepPending: number;
+  preFilterPassed: number;
+  preFilterFilteredOut: number;
+  preFilterRunning: number;
+  preFilterPending: number;
 };
 
 export function tallyStatuses(rows: ExhibitorStatusRow[]): StatusCounts {
@@ -48,6 +53,10 @@ export function tallyStatuses(rows: ExhibitorStatusRow[]): StatusCounts {
     deepDone: 0,
     deepRunning: 0,
     deepPending: 0,
+    preFilterPassed: 0,
+    preFilterFilteredOut: 0,
+    preFilterRunning: 0,
+    preFilterPending: 0,
   };
   for (const r of rows) {
     if (r.short_status === "done") c.shortDone++;
@@ -58,6 +67,11 @@ export function tallyStatuses(rows: ExhibitorStatusRow[]): StatusCounts {
     if (r.deep_status === "done") c.deepDone++;
     else if (r.deep_status === "running") c.deepRunning++;
     else if (r.deep_status === "pending") c.deepPending++;
+
+    if (r.pre_filter_status === "passed") c.preFilterPassed++;
+    else if (r.pre_filter_status === "filtered_out") c.preFilterFilteredOut++;
+    else if (r.pre_filter_status === "running") c.preFilterRunning++;
+    else c.preFilterPending++;
   }
   return c;
 }
