@@ -53,6 +53,13 @@ export function priceForWebSearch(uses: number): number {
   return uses * WEB_SEARCH_USD_PER_REQUEST;
 }
 
+// Firecrawl Hobby-Plan: $16/mo für 5000 Credits → $0.0032/Credit.
+// 1 Credit = markdown/rawHtml-Scrape, 5 Credits = json+schema-Extraktion (LLM).
+const FIRECRAWL_USD_PER_CREDIT = 0.0032;
+export function priceForFirecrawlCredits(credits: number): number {
+  return credits * FIRECRAWL_USD_PER_CREDIT;
+}
+
 export function formatCost(usd: number): string {
   if (usd < 0.01) return "<0.01 $";
   if (usd < 1) return `${usd.toFixed(2)} $`;

@@ -11,8 +11,14 @@ import {
   PARAM_DEFAULTS,
   PARAM_BOUNDS,
   defaultHandbook,
+  defaultShortSystemPrompt,
+  defaultShortUserTemplate,
+  defaultDeepSystemPrompt,
+  defaultDeepUserTemplate,
+  defaultChatSystemPrompt,
   type AppSettings,
 } from "@/lib/settings";
+import { SHOW_DISCOVERY_SYSTEM_DEFAULT } from "@/lib/claude";
 import type { UserProfile } from "@/lib/profile";
 
 const SHORT_MODEL_OPTIONS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"];
@@ -389,6 +395,8 @@ const TIER_INFO: Record<Tier, {
   maxTokensField: ParamFieldKey;
   maxInputCharsField: ParamFieldKey;
   placeholders: string[];
+  systemDefault: () => string;
+  templateDefault: () => string;
 }> = {
   short: {
     title: "Short-Overview",
@@ -398,6 +406,8 @@ const TIER_INFO: Record<Tier, {
     maxTokensField: "short_max_tokens",
     maxInputCharsField: "short_max_input_chars",
     placeholders: SHARED_PLACEHOLDERS,
+    systemDefault: defaultShortSystemPrompt,
+    templateDefault: defaultShortUserTemplate,
   },
   deep: {
     title: "Deep-Dive",
@@ -407,6 +417,8 @@ const TIER_INFO: Record<Tier, {
     maxTokensField: "deep_max_tokens",
     maxInputCharsField: "deep_max_input_chars",
     placeholders: DEEP_PLACEHOLDERS,
+    systemDefault: defaultDeepSystemPrompt,
+    templateDefault: defaultDeepUserTemplate,
   },
 };
 
@@ -469,8 +481,8 @@ function NumberField({
 
 function PromptTab({ tier, settings }: { tier: Tier; settings: AppSettings }) {
   const info = TIER_INFO[tier];
-  const initialSystem = settings[info.systemField] ?? "";
-  const initialTemplate = settings[info.templateField] ?? "";
+  const initialSystem = settings[info.systemField] ?? info.systemDefault();
+  const initialTemplate = settings[info.templateField] ?? info.templateDefault();
   const initialMaxTokens = settings[info.maxTokensField] as number | null;
   const initialMaxInputChars = settings[info.maxInputCharsField] as number | null;
 
@@ -520,13 +532,13 @@ function PromptTab({ tier, settings }: { tier: Tier; settings: AppSettings }) {
   async function resetSystem() {
     if (!confirm(`${info.title}: System-Prompt auf Code-Default zuruecksetzen?`)) return;
     const fresh = await save({ reset_field: info.systemField });
-    if (fresh) setSystemPrompt(fresh[info.systemField] ?? "");
+    if (fresh) setSystemPrompt(fresh[info.systemField] ?? info.systemDefault());
   }
 
   async function resetTemplate() {
     if (!confirm(`${info.title}: User-Template auf Code-Default zuruecksetzen?`)) return;
     const fresh = await save({ reset_field: info.templateField });
-    if (fresh) setUserTemplate(fresh[info.templateField] ?? "");
+    if (fresh) setUserTemplate(fresh[info.templateField] ?? info.templateDefault());
   }
 
   async function resetMaxTokens() {
@@ -652,7 +664,7 @@ function PromptTab({ tier, settings }: { tier: Tier; settings: AppSettings }) {
 }
 
 function ChatTab({ settings }: { settings: AppSettings }) {
-  const initialSystem = settings.chat_system_prompt ?? "";
+  const initialSystem = settings.chat_system_prompt ?? defaultChatSystemPrompt();
   const initialMaxTokens = settings.chat_max_tokens;
   const initialWebSearchMaxUses = settings.chat_web_search_max_uses;
 
@@ -700,7 +712,7 @@ function ChatTab({ settings }: { settings: AppSettings }) {
   async function resetSystem() {
     if (!confirm("Chat: System-Prompt auf Code-Default zuruecksetzen?")) return;
     const fresh = await save({ reset_field: "chat_system_prompt" });
-    if (fresh) setSystemPrompt(fresh.chat_system_prompt ?? "");
+    if (fresh) setSystemPrompt(fresh.chat_system_prompt ?? defaultChatSystemPrompt());
   }
 
   const dirty =
@@ -796,13 +808,17 @@ function ChatTab({ settings }: { settings: AppSettings }) {
 }
 
 function ShowDiscoveryTab({ settings }: { settings: AppSettings }) {
-  const [systemPrompt, setSystemPrompt] = useState(settings.show_discovery_system_prompt ?? "");
+  const [systemPrompt, setSystemPrompt] = useState(
+    settings.show_discovery_system_prompt ?? SHOW_DISCOVERY_SYSTEM_DEFAULT,
+  );
   const [busy, setBusy] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const systemEmpty = systemPrompt.trim().length === 0;
-  const dirty = systemPrompt !== (settings.show_discovery_system_prompt ?? "");
+  const dirty =
+    systemPrompt !==
+    (settings.show_discovery_system_prompt ?? SHOW_DISCOVERY_SYSTEM_DEFAULT);
 
   async function save(body: Record<string, unknown>): Promise<AppSettings | null> {
     setBusy(true);
@@ -819,8 +835,7 @@ function ShowDiscoveryTab({ settings }: { settings: AppSettings }) {
       return null;
     }
     setSavedAt(new Date().toLocaleTimeString("de-DE"));
-    const { settings: fresh } = await res.json();
-    return fresh as AppSettings;
+    return (await res.json()) as AppSettings;
   }
 
   async function handleSave() {
@@ -829,7 +844,7 @@ function ShowDiscoveryTab({ settings }: { settings: AppSettings }) {
 
   async function resetSystem() {
     const fresh = await save({ reset_field: "show_discovery_system_prompt" });
-    if (fresh) setSystemPrompt(fresh.show_discovery_system_prompt ?? "");
+    if (fresh) setSystemPrompt(fresh.show_discovery_system_prompt ?? SHOW_DISCOVERY_SYSTEM_DEFAULT);
   }
 
   return (

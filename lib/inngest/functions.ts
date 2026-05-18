@@ -671,6 +671,7 @@ export const exhibitorShort = inngest.createFunction(
           service_need: result.intel.service_need,
           tokens_in: result.usage.tokens_in,
           tokens_out: result.usage.tokens_out,
+          firecrawl_credits: exhibitor.website ? 1 : 0,
         },
         { onConflict: "exhibitor_id" },
       );
@@ -861,6 +862,7 @@ export const exhibitorDeep = inngest.createFunction(
           full_reasoning: result.intel.full_reasoning,
           tokens_in: result.usage.tokens_in,
           tokens_out: result.usage.tokens_out,
+          firecrawl_credits: exhibitor.website ? 1 : 0,
         },
         { onConflict: "exhibitor_id" },
       );
@@ -1016,6 +1018,7 @@ export const exhibitorProfileEnrich = inngest.createFunction(
       const update: Record<string, unknown> = {
         profile_data: merged,
         profile_enrich_status: "done",
+        firecrawl_credits_profile_enrich: 5,
       };
       // The external website is the most valuable field — promote it onto
       // the top-level `website` column so existing scrape/short flows pick
@@ -2462,6 +2465,7 @@ export const competitorShort = inngest.createFunction(
           tokens_out: usage.tokens_out,
           model: (settings as any).competitor_short_model ?? SHORT_MODEL_DEFAULT,
           raw_snapshot: intel,
+          firecrawl_credits: 1,
         })
         .select("id")
         .single();

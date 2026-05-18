@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { priceFor, priceForBrowserSec, priceForWebSearch } from "@/lib/pricing";
+import { priceFor, priceForBrowserSec, priceForWebSearch, priceForFirecrawlCredits } from "@/lib/pricing";
 import { getSettings, SHORT_MODEL_DEFAULT, DEEP_MODEL_DEFAULT } from "@/lib/settings";
 import { COMPETITOR_DISCOVERY_MODEL_DEFAULT } from "@/lib/claude";
 
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type TokenAgg = { tin: number; tout: number; cnt: number };
+type FcAgg = { credits: number; cnt: number };
 
 type CostStats = {
   exhibitor_short: TokenAgg;
@@ -17,6 +18,11 @@ type CostStats = {
   competitor_versions: TokenAgg;
   show_discovery: TokenAgg & { web_search_uses: number };
   browser_seconds: number;
+  fc_short: FcAgg;
+  fc_deep: FcAgg;
+  fc_profile_enrich: FcAgg;
+  fc_competitor_short: FcAgg;
+  fc_show_discovery: FcAgg;
   shows: ShowCost[];
   competitor_runs: CompetitorRun[];
   show_discovery_list: ShowDiscoveryRun[];
@@ -30,6 +36,9 @@ type ShowCost = {
   short_in: number; short_out: number; short_cnt: number;
   deep_in: number; deep_out: number; deep_cnt: number;
   chat_in: number; chat_out: number; chat_cnt: number;
+  fc_short_credits: number;
+  fc_deep_credits: number;
+  fc_profile_credits: number;
 };
 
 type CompetitorRun = {
@@ -52,6 +61,7 @@ type ShowDiscoveryRun = {
   tokens_in: number;
   tokens_out: number;
   web_search_uses: number;
+  firecrawl_calls: number;
   started_at: string | null;
   finished_at: string | null;
 };
@@ -89,6 +99,7 @@ function modelShortLabel(model: string | null | undefined): string {
 }
 
 const ZERO_AGG: TokenAgg = { tin: 0, tout: 0, cnt: 0 };
+const ZERO_FC: FcAgg = { credits: 0, cnt: 0 };
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -112,6 +123,11 @@ export default async function CostsPage() {
     competitor_versions: ZERO_AGG,
     show_discovery: { ...ZERO_AGG, web_search_uses: 0 },
     browser_seconds: 0,
+    fc_short: ZERO_FC,
+    fc_deep: ZERO_FC,
+    fc_profile_enrich: ZERO_FC,
+    fc_competitor_short: ZERO_FC,
+    fc_show_discovery: ZERO_FC,
     shows: [],
     competitor_runs: [],
     show_discovery_list: [],
@@ -122,7 +138,7 @@ export default async function CostsPage() {
   const compShortModel = settings?.competitor_short_model ?? SHORT_MODEL_DEFAULT;
   const compDiscModel = settings?.competitor_discovery_model ?? COMPETITOR_DISCOVERY_MODEL_DEFAULT;
 
-  // Category costs
+  // Claude category costs
   const costShort = priceFor(shortModel, stats.exhibitor_short.tin, stats.exhibitor_short.tout);
   const costDeep = priceFor(deepModel, stats.exhibitor_deep.tin, stats.exhibitor_deep.tout);
   const costChat = priceFor(deepModel, stats.chat.tin, stats.chat.tout);
@@ -130,14 +146,27 @@ export default async function CostsPage() {
   const costCompDiscovery =
     priceFor(compDiscModel, stats.competitor_discovery.tin, stats.competitor_discovery.tout) +
     stats.competitor_discovery.web_search_cost_usd;
-  // Show discovery: sum per-run using stored model
   const costShowDiscovery = stats.show_discovery_list.reduce((acc, r) => {
     return acc + priceFor(r.model ?? "", r.tokens_in, r.tokens_out) + priceForWebSearch(r.web_search_uses);
   }, 0);
   const costBrowser = priceForBrowserSec(stats.browser_seconds);
+  const totalClaudeCost = costShort + costDeep + costChat + costCompVersions + costCompDiscovery + costShowDiscovery + costBrowser;
 
-  const totalCost =
-    costShort + costDeep + costChat + costCompVersions + costCompDiscovery + costShowDiscovery + costBrowser;
+  // Firecrawl category costs
+  const fcCostShort = priceForFirecrawlCredits(stats.fc_short.credits);
+  const fcCostDeep = priceForFirecrawlCredits(stats.fc_deep.credits);
+  const fcCostProfileEnrich = priceForFirecrawlCredits(stats.fc_profile_enrich.credits);
+  const fcCostCompShort = priceForFirecrawlCredits(stats.fc_competitor_short.credits);
+  const fcCostShowDisc = priceForFirecrawlCredits(stats.fc_show_discovery.credits);
+  const totalFcCredits =
+    stats.fc_short.credits +
+    stats.fc_deep.credits +
+    stats.fc_profile_enrich.credits +
+    stats.fc_competitor_short.credits +
+    stats.fc_show_discovery.credits;
+  const totalFcCost = fcCostShort + fcCostDeep + fcCostProfileEnrich + fcCostCompShort + fcCostShowDisc;
+
+  const totalCost = totalClaudeCost + totalFcCost;
 
   const totalIn =
     stats.exhibitor_short.tin +
@@ -157,67 +186,113 @@ export default async function CostsPage() {
 
   // Per-show costs
   const showsWithCost = stats.shows.map((s) => {
-    const c =
+    const claudeCost =
       priceFor(shortModel, s.short_in, s.short_out) +
       priceFor(deepModel, s.deep_in, s.deep_out) +
       priceFor(deepModel, s.chat_in, s.chat_out) +
       priceForBrowserSec(s.browser_seconds);
-    return { ...s, cost: c };
-  }).sort((a, b) => b.cost - a.cost);
+    const fcCredits = s.fc_short_credits + s.fc_deep_credits + s.fc_profile_credits;
+    const fcCost = priceForFirecrawlCredits(fcCredits);
+    return { ...s, claudeCost, fcCredits, fcCost, totalCost: claudeCost + fcCost };
+  }).sort((a, b) => b.totalCost - a.totalCost);
 
-  const categories: { label: string; cost: number; tokens_in: number; tokens_out: number; cnt?: number; extra?: string }[] = [
+  // Category rows: Claude + Firecrawl side-by-side
+  const categories: {
+    label: string;
+    claudeCost: number;
+    claudeTokensIn: number;
+    claudeTokensOut: number;
+    claudeCnt?: number;
+    claudeExtra?: string;
+    fcCredits: number;
+    fcCost: number;
+    fcCnt?: number;
+    fcExtra?: string;
+  }[] = [
     {
       label: "Aussteller Short",
-      cost: costShort,
-      tokens_in: stats.exhibitor_short.tin,
-      tokens_out: stats.exhibitor_short.tout,
-      cnt: stats.exhibitor_short.cnt,
-      extra: shortModel.includes("haiku") ? "Haiku" : shortModel.includes("sonnet") ? "Sonnet" : "Opus",
+      claudeCost: costShort,
+      claudeTokensIn: stats.exhibitor_short.tin,
+      claudeTokensOut: stats.exhibitor_short.tout,
+      claudeCnt: stats.exhibitor_short.cnt,
+      claudeExtra: shortModel.includes("haiku") ? "Haiku" : shortModel.includes("sonnet") ? "Sonnet" : "Opus",
+      fcCredits: stats.fc_short.credits,
+      fcCost: fcCostShort,
+      fcCnt: stats.fc_short.cnt,
+      fcExtra: "1 Cr./Scrape",
     },
     {
       label: "Aussteller Deep",
-      cost: costDeep,
-      tokens_in: stats.exhibitor_deep.tin,
-      tokens_out: stats.exhibitor_deep.tout,
-      cnt: stats.exhibitor_deep.cnt,
-      extra: deepModel.includes("haiku") ? "Haiku" : deepModel.includes("sonnet") ? "Sonnet" : "Opus",
+      claudeCost: costDeep,
+      claudeTokensIn: stats.exhibitor_deep.tin,
+      claudeTokensOut: stats.exhibitor_deep.tout,
+      claudeCnt: stats.exhibitor_deep.cnt,
+      claudeExtra: deepModel.includes("haiku") ? "Haiku" : deepModel.includes("sonnet") ? "Sonnet" : "Opus",
+      fcCredits: stats.fc_deep.credits,
+      fcCost: fcCostDeep,
+      fcCnt: stats.fc_deep.cnt,
+      fcExtra: "1 Cr./Scrape",
+    },
+    {
+      label: "Profile-Enrich",
+      claudeCost: 0,
+      claudeTokensIn: 0,
+      claudeTokensOut: 0,
+      fcCredits: stats.fc_profile_enrich.credits,
+      fcCost: fcCostProfileEnrich,
+      fcCnt: stats.fc_profile_enrich.cnt,
+      fcExtra: "5 Cr./Scrape",
     },
     {
       label: "Chat",
-      cost: costChat,
-      tokens_in: stats.chat.tin,
-      tokens_out: stats.chat.tout,
-      cnt: stats.chat.cnt,
+      claudeCost: costChat,
+      claudeTokensIn: stats.chat.tin,
+      claudeTokensOut: stats.chat.tout,
+      claudeCnt: stats.chat.cnt,
+      fcCredits: 0,
+      fcCost: 0,
     },
     {
       label: "Konkurrenz-Analyse",
-      cost: costCompDiscovery,
-      tokens_in: stats.competitor_discovery.tin,
-      tokens_out: stats.competitor_discovery.tout,
-      cnt: stats.competitor_discovery.cnt,
-      extra: `inkl. ${stats.competitor_discovery.web_search_uses} Searches`,
+      claudeCost: costCompDiscovery,
+      claudeTokensIn: stats.competitor_discovery.tin,
+      claudeTokensOut: stats.competitor_discovery.tout,
+      claudeCnt: stats.competitor_discovery.cnt,
+      claudeExtra: `inkl. ${stats.competitor_discovery.web_search_uses} Searches`,
+      fcCredits: 0,
+      fcCost: 0,
     },
     {
       label: "Konkurrenz-Kurzanalyse",
-      cost: costCompVersions,
-      tokens_in: stats.competitor_versions.tin,
-      tokens_out: stats.competitor_versions.tout,
-      cnt: stats.competitor_versions.cnt,
+      claudeCost: costCompVersions,
+      claudeTokensIn: stats.competitor_versions.tin,
+      claudeTokensOut: stats.competitor_versions.tout,
+      claudeCnt: stats.competitor_versions.cnt,
+      fcCredits: stats.fc_competitor_short.credits,
+      fcCost: fcCostCompShort,
+      fcCnt: stats.fc_competitor_short.cnt,
+      fcExtra: "1 Cr./Scrape",
     },
     {
       label: "Messen-Suche",
-      cost: costShowDiscovery,
-      tokens_in: stats.show_discovery.tin,
-      tokens_out: stats.show_discovery.tout,
-      cnt: stats.show_discovery.cnt,
-      extra: `${stats.show_discovery.web_search_uses} Searches`,
+      claudeCost: costShowDiscovery,
+      claudeTokensIn: stats.show_discovery.tin,
+      claudeTokensOut: stats.show_discovery.tout,
+      claudeCnt: stats.show_discovery.cnt,
+      claudeExtra: `${stats.show_discovery.web_search_uses} Searches`,
+      fcCredits: stats.fc_show_discovery.credits,
+      fcCost: fcCostShowDisc,
+      fcCnt: stats.fc_show_discovery.cnt,
+      fcExtra: "5 Cr./Validierung",
     },
     {
       label: "Browserbase",
-      cost: costBrowser,
-      tokens_in: 0,
-      tokens_out: 0,
-      extra: `${Math.round(stats.browser_seconds / 60)} Min.`,
+      claudeCost: costBrowser,
+      claudeTokensIn: 0,
+      claudeTokensOut: 0,
+      claudeExtra: `${Math.round(stats.browser_seconds / 60)} Min.`,
+      fcCredits: 0,
+      fcCost: 0,
     },
   ];
 
@@ -229,29 +304,43 @@ export default async function CostsPage() {
           Kosten<span style={{ color: "var(--color-gold)" }}>.</span>
         </h1>
         <p className="mt-3 text-body text-[var(--color-near-black)]/65 max-w-xl">
-          Alle Claude API und Browserbase Kosten aggregiert nach Kategorie und Messe.
+          Claude API, Firecrawl und Browserbase — aggregiert nach Kategorie und Messe.
         </p>
       </header>
 
       {/* ── Stat cards ── */}
-      <section className="grid grid-cols-3 gap-4 mb-10">
+      <section className="grid grid-cols-4 gap-4 mb-10">
         <StatCard label="gesamt" value={formatUsd(totalCost)} highlight />
-        <StatCard label="token in" value={formatNum(totalIn)} />
-        <StatCard label="token out" value={formatNum(totalOut)} />
+        <StatCard label="claude" value={formatUsd(totalClaudeCost)} />
+        <StatCard label="firecrawl" value={`${formatNum(totalFcCredits)} Cr.`} sub={formatUsd(totalFcCost)} />
+        <StatCard label="token in / out" value={`${formatNum(totalIn)} / ${formatNum(totalOut)}`} />
       </section>
 
       {/* ── Category breakdown ── */}
       <section className="mb-10">
         <p className="section-eyebrow mb-3">NACH KATEGORIE</p>
-        <div className="box-line">
+        <div className="box-line overflow-x-auto">
           <table className="w-full text-body-sm">
             <thead>
               <tr className="border-b border-[var(--border-color-soft)]">
-                <th className="text-left px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Kategorie</th>
-                <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Token In</th>
-                <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Token Out</th>
-                <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Aufrufe</th>
-                <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Kosten</th>
+                <th className="text-left px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50" rowSpan={2}>Kategorie</th>
+                {/* Claude columns */}
+                <th className="text-center px-3 py-2 text-meta font-normal text-[var(--color-near-black)]/40 border-l border-[var(--border-color-soft)]" colSpan={4}>
+                  Claude
+                </th>
+                {/* Firecrawl columns */}
+                <th className="text-center px-3 py-2 text-meta font-normal text-[var(--color-near-black)]/40 border-l border-[var(--border-color-soft)]" colSpan={3}>
+                  Firecrawl
+                </th>
+              </tr>
+              <tr className="border-b border-[var(--border-color-soft)]">
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40 border-l border-[var(--border-color-soft)]">Token In</th>
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40">Token Out</th>
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40">Aufrufe</th>
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40">Kosten</th>
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40 border-l border-[var(--border-color-soft)]">Credits</th>
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40">Aufrufe</th>
+                <th className="text-right px-4 py-2 text-meta font-normal text-[var(--color-near-black)]/40">Kosten</th>
               </tr>
             </thead>
             <tbody>
@@ -264,36 +353,69 @@ export default async function CostsPage() {
                 >
                   <td className="px-5 py-3">
                     <span className="text-body-sm font-medium">{cat.label}</span>
-                    {cat.extra && (
-                      <span className="ml-2 text-meta text-[var(--color-near-black)]/40">{cat.extra}</span>
+                    {cat.claudeExtra && (
+                      <span className="ml-2 text-meta text-[var(--color-near-black)]/40">{cat.claudeExtra}</span>
                     )}
                   </td>
-                  <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
-                    {cat.tokens_in > 0 ? formatNum(cat.tokens_in) : "—"}
+                  {/* Claude */}
+                  <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60 border-l border-[var(--border-color-soft)]">
+                    {cat.claudeTokensIn > 0 ? formatNum(cat.claudeTokensIn) : "—"}
                   </td>
-                  <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
-                    {cat.tokens_out > 0 ? formatNum(cat.tokens_out) : "—"}
+                  <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                    {cat.claudeTokensOut > 0 ? formatNum(cat.claudeTokensOut) : "—"}
                   </td>
-                  <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
-                    {cat.cnt != null ? cat.cnt : "—"}
+                  <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                    {cat.claudeCnt != null ? cat.claudeCnt : "—"}
                   </td>
-                  <td className="px-5 py-3 text-right text-meta-strong tabular-nums">
-                    {formatUsd(cat.cost)}
+                  <td className="px-4 py-3 text-right text-meta-strong tabular-nums">
+                    {cat.claudeCost > 0 ? formatUsd(cat.claudeCost) : "—"}
+                  </td>
+                  {/* Firecrawl */}
+                  <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60 border-l border-[var(--border-color-soft)]">
+                    {cat.fcCredits > 0 ? (
+                      <span>
+                        {formatNum(cat.fcCredits)}
+                        {cat.fcExtra && (
+                          <span className="ml-1 text-[var(--color-near-black)]/35">{cat.fcExtra}</span>
+                        )}
+                      </span>
+                    ) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                    {cat.fcCnt != null && cat.fcCnt > 0 ? cat.fcCnt : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-meta-strong tabular-nums">
+                    {cat.fcCost > 0 ? formatUsd(cat.fcCost) : "—"}
                   </td>
                 </tr>
               ))}
-              <tr className="bg-[var(--color-near-black)]/[0.03]">
+              {/* Totals row */}
+              <tr className="bg-[var(--color-near-black)]/[0.03] border-t border-[var(--border-color)]">
                 <td className="px-5 py-3 text-body-sm font-semibold">Gesamt</td>
-                <td className="px-5 py-3 text-right text-meta tabular-nums font-semibold">{formatNum(totalIn)}</td>
-                <td className="px-5 py-3 text-right text-meta tabular-nums font-semibold">{formatNum(totalOut)}</td>
+                <td className="px-4 py-3 text-right text-meta tabular-nums font-semibold border-l border-[var(--border-color-soft)]">
+                  {formatNum(totalIn)}
+                </td>
+                <td className="px-4 py-3 text-right text-meta tabular-nums font-semibold">
+                  {formatNum(totalOut)}
+                </td>
                 <td />
-                <td className="px-5 py-3 text-right text-meta-strong tabular-nums font-semibold">
-                  {formatUsd(totalCost)}
+                <td className="px-4 py-3 text-right text-meta-strong tabular-nums font-semibold">
+                  {formatUsd(totalClaudeCost)}
+                </td>
+                <td className="px-4 py-3 text-right text-meta tabular-nums font-semibold border-l border-[var(--border-color-soft)]">
+                  {formatNum(totalFcCredits)} Cr.
+                </td>
+                <td />
+                <td className="px-4 py-3 text-right text-meta-strong tabular-nums font-semibold">
+                  {formatUsd(totalFcCost)}
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
+        <p className="mt-2 text-meta text-[var(--color-near-black)]/40">
+          Firecrawl: Hobby-Plan, $0.0032/Credit. 1 Cr. = Markdown/HTML-Scrape, 5 Cr. = LLM-Extraktion (JSON-Schema).
+        </p>
       </section>
 
       {/* ── Per-show breakdown ── */}
@@ -304,16 +426,19 @@ export default async function CostsPage() {
             Noch keine Messen erfasst.
           </div>
         ) : (
-          <div className="box-line">
+          <div className="box-line overflow-x-auto">
             <table className="w-full text-body-sm">
               <thead>
                 <tr className="border-b border-[var(--border-color-soft)]">
                   <th className="text-left px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Messe</th>
-                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Short</th>
-                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Deep</th>
-                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Chat</th>
-                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Browser</th>
-                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Gesamt</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Short</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Deep</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Chat</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Browser</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50 border-l border-[var(--border-color-soft)]">FC Short</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50">FC Deep</th>
+                  <th className="text-right px-4 py-3 text-meta font-normal text-[var(--color-near-black)]/50">FC Profile</th>
+                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50 border-l border-[var(--border-color-soft)]">Gesamt</th>
                 </tr>
               </thead>
               <tbody>
@@ -322,6 +447,9 @@ export default async function CostsPage() {
                   const dc = priceFor(deepModel, s.deep_in, s.deep_out);
                   const cc = priceFor(deepModel, s.chat_in, s.chat_out);
                   const bc = priceForBrowserSec(s.browser_seconds);
+                  const fcSc = priceForFirecrawlCredits(s.fc_short_credits);
+                  const fcDc = priceForFirecrawlCredits(s.fc_deep_credits);
+                  const fcPc = priceForFirecrawlCredits(s.fc_profile_credits);
                   return (
                     <tr
                       key={s.id}
@@ -342,20 +470,32 @@ export default async function CostsPage() {
                           )}
                         </a>
                       </td>
-                      <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                      {/* Claude */}
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
                         {sc > 0 ? formatUsd(sc) : "—"}
                       </td>
-                      <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
                         {dc > 0 ? formatUsd(dc) : "—"}
                       </td>
-                      <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
                         {cc > 0 ? formatUsd(cc) : "—"}
                       </td>
-                      <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
                         {bc > 0 ? formatUsd(bc) : "—"}
                       </td>
-                      <td className="px-5 py-3 text-right text-meta-strong tabular-nums">
-                        {formatUsd(s.cost)}
+                      {/* Firecrawl */}
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60 border-l border-[var(--border-color-soft)]">
+                        {s.fc_short_credits > 0 ? `${s.fc_short_credits} Cr.` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                        {s.fc_deep_credits > 0 ? `${s.fc_deep_credits} Cr.` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                        {s.fc_profile_credits > 0 ? `${s.fc_profile_credits} Cr.` : "—"}
+                      </td>
+                      {/* Total */}
+                      <td className="px-5 py-3 text-right text-meta-strong tabular-nums border-l border-[var(--border-color-soft)]">
+                        {formatUsd(s.totalCost)}
                       </td>
                     </tr>
                   );
@@ -439,12 +579,17 @@ export default async function CostsPage() {
                   <th className="text-left px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Status</th>
                   <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Token</th>
                   <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Searches</th>
+                  <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">FC Credits</th>
                   <th className="text-right px-5 py-3 text-meta font-normal text-[var(--color-near-black)]/50">Kosten</th>
                 </tr>
               </thead>
               <tbody>
                 {stats.show_discovery_list.map((r, i) => {
-                  const rc = priceFor(r.model ?? "", r.tokens_in, r.tokens_out) + priceForWebSearch(r.web_search_uses);
+                  const fcCredits = (r.firecrawl_calls ?? 0) * 5;
+                  const rc =
+                    priceFor(r.model ?? "", r.tokens_in, r.tokens_out) +
+                    priceForWebSearch(r.web_search_uses) +
+                    priceForFirecrawlCredits(fcCredits);
                   return (
                     <tr
                       key={r.id}
@@ -469,6 +614,9 @@ export default async function CostsPage() {
                       <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
                         {r.web_search_uses}
                       </td>
+                      <td className="px-5 py-3 text-right text-meta tabular-nums text-[var(--color-near-black)]/60">
+                        {fcCredits > 0 ? `${fcCredits} Cr.` : "—"}
+                      </td>
                       <td className="px-5 py-3 text-right text-meta-strong tabular-nums">
                         {formatUsd(rc)}
                       </td>
@@ -489,10 +637,12 @@ export default async function CostsPage() {
 function StatCard({
   label,
   value,
+  sub,
   highlight = false,
 }: {
   label: string;
   value: string;
+  sub?: string;
   highlight?: boolean;
 }) {
   return (
@@ -504,6 +654,7 @@ function StatCard({
       >
         {value}
       </span>
+      {sub && <span className="text-meta text-[var(--color-near-black)]/50 tabular-nums">{sub}</span>}
     </div>
   );
 }
