@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { showExhibitorsTag } from "@/lib/show-cache";
 
 function detectSep(line: string): string {
   const commas = (line.match(/,/g) ?? []).length;
@@ -150,6 +152,8 @@ export async function POST(
       inserted += data?.length ?? 0;
     }
   }
+
+  if (inserted > 0) revalidateTag(showExhibitorsTag(showId));
 
   return NextResponse.json({ inserted, skipped, error: firstError ?? undefined });
 }
