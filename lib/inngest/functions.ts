@@ -403,6 +403,7 @@ export const crawlTradeShow = inngest.createFunction(
         .from("trade_shows")
         .update({ status: "ready", current_step: null })
         .eq("id", tradeShowId);
+      revalidateTag(showExhibitorsTag(tradeShowId));
       await tryAppendLog(supabase, tradeShowId, {
         phase: "listing",
         message: `Listing fertig: ${inserted.length} Aussteller`,
@@ -2153,6 +2154,7 @@ export const crawlTradeShowListing = inngest.createFunction(
         .from("trade_shows")
         .update({ status: "ready", current_step: null })
         .eq("id", tradeShowId);
+      revalidateTag(showExhibitorsTag(tradeShowId));
       await tryAppendLog(supabase, tradeShowId, {
         phase: "listing",
         message: `Listing fertig: ${inserted.length} Aussteller`,
