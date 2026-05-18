@@ -48,14 +48,14 @@ export default function RouteError({
         <button
           type="button"
           onClick={reset}
-          className="px-5 py-2.5 text-body-sm font-semibold border border-[var(--color-near-black)] hover:text-[var(--color-gold)] transition-colors"
+          className="px-5 py-2.5 text-body-sm font-semibold border border-[var(--color-near-black)] rounded-md hover:text-[var(--color-gold)] transition-colors"
         >
           Erneut versuchen
         </button>
         <button
           type="button"
           onClick={() => (window.location.href = "/")}
-          className="px-5 py-2.5 text-body-sm font-medium border border-[var(--border-color-soft)] text-[var(--color-near-black)]/70 hover:text-[var(--color-near-black)] transition-colors"
+          className="px-5 py-2.5 text-body-sm font-medium border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/70 hover:text-[var(--color-near-black)] transition-colors"
         >
           Zur Startseite
         </button>

@@ -151,7 +151,7 @@ export function CompetitorsView({
               <button
                 key={tab.key}
                 onClick={() => setFilter(tab.key)}
-                className={`px-3 py-2 text-body-sm border transition-colors ${
+                className={`px-3 py-2 text-body-sm border rounded-md transition-colors ${
                   active
                     ? "border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.04] text-[var(--color-near-black)] font-semibold"
                     : "border-[var(--border-color-soft)] text-[var(--color-near-black)]/70 hover:border-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)]"
@@ -188,7 +188,7 @@ export function CompetitorsView({
             <button
               onClick={bulkShort}
               disabled={bulkShortPending}
-              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-2 border border-[var(--color-near-black)]/80 text-[var(--color-near-black)] hover:border-[var(--color-gold)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-2 border border-[var(--color-near-black)]/80 rounded-md text-[var(--color-near-black)] hover:border-[var(--color-gold)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
               {bulkShortPending ? (
                 <><GoldDot size={5} /><span>laeuft...</span></>

@@ -153,7 +153,7 @@ export async function POST(
     }
   }
 
-  if (inserted > 0) revalidateTag(showExhibitorsTag(showId));
+  revalidateTag(showExhibitorsTag(showId));
 
   return NextResponse.json({ inserted, skipped, error: firstError ?? undefined });
 }

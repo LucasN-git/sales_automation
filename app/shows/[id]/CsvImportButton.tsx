@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { loading } from "@/components/LoadingBar";
 
 type PreviewRow = { name: string; booth: string; website: string };
@@ -80,8 +79,6 @@ function parsePreview(text: string): { rows: PreviewRow[]; total: number } | { e
 export function CsvImportButton({ showId }: { showId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<State>({ kind: "idle" });
-  const [, startTransition] = useTransition();
-  const router = useRouter();
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -123,7 +120,7 @@ export function CsvImportButton({ showId }: { showId: string }) {
         return;
       }
       setState({ kind: "done", inserted: json.inserted, skipped: json.skipped, dbError: json.error });
-      startTransition(() => router.refresh());
+      window.location.reload();
     } catch (err) {
       setState({ kind: "error", message: (err as Error).message });
     } finally {
