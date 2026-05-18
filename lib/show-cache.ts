@@ -17,6 +17,8 @@ export type CachedExhibitorRow = {
   short_status: string;
   deep_status: string;
   current_step: string | null;
+  pre_filter_status: string | null;
+  pre_filter_reason: string | null;
   exhibitor_short: {
     one_liner: string | null;
     priority_label: string | null;
@@ -40,6 +42,9 @@ export type CachedExhibitorIntel = {
     profile_url: string | null;
     profile_data: Record<string, unknown> | null;
     profile_enrich_status: string | null;
+    borrowed_short_from_exhibitor_id: string | null;
+    pre_filter_status: string | null;
+    pre_filter_reason: string | null;
   } | null;
   shortIntel: {
     one_liner: string | null;
@@ -52,6 +57,7 @@ export type CachedExhibitorIntel = {
     drone_relevance: string | null;
     service_need: string[] | null;
     updated_at: string | null;
+    borrowed_from_show_name: string | null;
   } | null;
   deepIntel: {
     business_summary: string | null;
@@ -87,7 +93,7 @@ export function getCachedExhibitorList(showId: string): Promise<CachedExhibitorR
       const { data } = await supabase
         .from("exhibitors")
         .select(
-          "id, company_name, website, booth, short_status, deep_status, current_step, exhibitor_short(one_liner, priority_label, match_confidence, isp_sector_match, user_group, battery_need)",
+          "id, company_name, website, booth, short_status, deep_status, current_step, pre_filter_status, pre_filter_reason, exhibitor_short(one_liner, priority_label, match_confidence, isp_sector_match, user_group, battery_need)",
         )
         .eq("trade_show_id", showId)
         .order("company_name", { ascending: true });
@@ -119,14 +125,14 @@ export function getCachedExhibitorIntel(
         supabase
           .from("exhibitors")
           .select(
-            "id, company_name, website, booth, short_status, deep_status, current_step, trade_show_id, profile_url, profile_data, profile_enrich_status",
+            "id, company_name, website, booth, short_status, deep_status, current_step, trade_show_id, profile_url, profile_data, profile_enrich_status, borrowed_short_from_exhibitor_id, pre_filter_status, pre_filter_reason",
           )
           .eq("id", exId)
           .single(),
         supabase
           .from("exhibitor_short")
           .select(
-            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, updated_at",
+            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, updated_at, borrowed_from_show_name",
           )
           .eq("exhibitor_id", exId)
           .maybeSingle(),

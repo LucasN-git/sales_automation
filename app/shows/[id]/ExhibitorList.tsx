@@ -16,6 +16,8 @@ type Exhibitor = {
   short_status: string;
   deep_status: string;
   current_step: string | null;
+  pre_filter_status: string | null;
+  pre_filter_reason: string | null;
   one_liner: string | null;
   priority_label: string | null;
   isp_sector_match: string[];
@@ -201,6 +203,8 @@ function ExhibitorRow({
   showId,
 }: RowComponentProps<RowExtra>) {
   const e = exhibitors[index];
+  const isFiltered = e.pre_filter_status === "filtered_out";
+
   const placeholder =
     e.short_status === "running"
       ? "wird analysiert"
@@ -208,68 +212,82 @@ function ExhibitorRow({
         ? "short fehlgeschlagen"
         : "noch keine einschaetzung";
 
+  const subline = isFiltered
+    ? (e.pre_filter_reason ?? "kein ISP-fit erkannt")
+    : e.one_liner
+      ? e.one_liner
+      : null;
+
   return (
-    <div style={style} className="pb-2 pr-2">
+    <div style={style} className={`pb-2 pr-2 ${isFiltered ? "opacity-40" : ""}`}>
       <Link
         href={`/shows/${showId}/exhibitors/${e.id}`}
         className="block px-5 py-4 box-line rounded-lg hover:bg-[var(--color-near-black)]/[0.02] transition-colors"
       >
-        {/* Desktop layout — unchanged 12-column grid */}
+        {/* Desktop layout — 12-column grid */}
         <div className="hidden lg:grid grid-cols-12 gap-4 items-baseline">
           <div className="col-span-6">
             <div className="text-subtitle truncate">{e.company_name}</div>
-            {e.one_liner ? (
+            {subline ? (
               <div className="text-body-sm text-[var(--color-near-black)]/65 truncate">
-                {e.one_liner}
+                {subline}
               </div>
             ) : (
               <div className="text-meta">{placeholder}</div>
             )}
           </div>
           <div className="col-span-3 flex flex-wrap gap-1.5">
-            {e.priority_label && (
-              <span
-                className={`text-meta-strong px-2 py-0.5 border ${
-                  PRIO_COLORS[e.priority_label] ?? ""
-                }`}
-              >
-                {e.priority_label}
-              </span>
-            )}
-            {e.battery_need && e.battery_need !== "keiner" && (
-              <span
-                className="text-meta-strong px-2 py-0.5 border"
-                style={{
-                  borderColor: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : "var(--border-color-soft)",
-                  color: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : undefined,
-                }}
-              >
-                {BATTERY_NEED_LABELS[e.battery_need] ?? e.battery_need}
-              </span>
-            )}
-            {e.user_group && (
+            {isFiltered ? (
               <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55">
-                {e.user_group}
+                vor-filtert
               </span>
-            )}
-            {e.deep_status === "done" && (
-              <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
-                deep
-              </span>
+            ) : (
+              <>
+                {e.priority_label && (
+                  <span
+                    className={`text-meta-strong px-2 py-0.5 border ${
+                      PRIO_COLORS[e.priority_label] ?? ""
+                    }`}
+                  >
+                    {e.priority_label}
+                  </span>
+                )}
+                {e.battery_need && e.battery_need !== "keiner" && (
+                  <span
+                    className="text-meta-strong px-2 py-0.5 border"
+                    style={{
+                      borderColor: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : "var(--border-color-soft)",
+                      color: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : undefined,
+                    }}
+                  >
+                    {BATTERY_NEED_LABELS[e.battery_need] ?? e.battery_need}
+                  </span>
+                )}
+                {e.user_group && (
+                  <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55">
+                    {e.user_group}
+                  </span>
+                )}
+                {e.deep_status === "done" && (
+                  <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
+                    deep
+                  </span>
+                )}
+              </>
             )}
           </div>
           <div className="col-span-2 text-right">
-            {e.match_confidence !== null ? (
+            {!isFiltered && e.match_confidence !== null ? (
               <span className="tabular-nums text-title">
                 {e.match_confidence}
                 <span style={{ color: scoreColor(e.match_confidence!) }}>.</span>
               </span>
-            ) : (
+            ) : !isFiltered ? (
               <span className="text-meta inline-flex items-center gap-1">
                 {e.short_status === "running" && <GoldDot size={5} />}
                 {e.short_status}
               </span>
-            )}
+            ) : null}
           </div>
           <div className="col-span-1 text-right text-meta truncate">
             {e.booth ?? ""}
@@ -280,57 +298,67 @@ function ExhibitorRow({
         <div className="lg:hidden flex flex-col gap-2">
           <div className="flex items-baseline justify-between gap-3">
             <div className="text-subtitle truncate min-w-0">{e.company_name}</div>
-            <div className="shrink-0 text-right">
-              {e.match_confidence !== null ? (
-                <span className="tabular-nums text-title">
-                  {e.match_confidence}
-                  <span style={{ color: scoreColor(e.match_confidence!) }}>.</span>
-                </span>
-              ) : (
-                <span className="text-meta inline-flex items-center gap-1">
-                  {e.short_status === "running" && <GoldDot size={5} />}
-                  {e.short_status}
-                </span>
-              )}
-            </div>
+            {!isFiltered && (
+              <div className="shrink-0 text-right">
+                {e.match_confidence !== null ? (
+                  <span className="tabular-nums text-title">
+                    {e.match_confidence}
+                    <span style={{ color: scoreColor(e.match_confidence!) }}>.</span>
+                  </span>
+                ) : (
+                  <span className="text-meta inline-flex items-center gap-1">
+                    {e.short_status === "running" && <GoldDot size={5} />}
+                    {e.short_status}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          {e.one_liner ? (
+          {subline ? (
             <div className="text-body-sm text-[var(--color-near-black)]/65 line-clamp-2">
-              {e.one_liner}
+              {subline}
             </div>
           ) : (
             <div className="text-meta">{placeholder}</div>
           )}
           <div className="flex flex-wrap gap-1.5 items-baseline">
-            {e.priority_label && (
-              <span
-                className={`text-meta-strong px-2 py-0.5 border ${
-                  PRIO_COLORS[e.priority_label] ?? ""
-                }`}
-              >
-                {e.priority_label}
-              </span>
-            )}
-            {e.battery_need && e.battery_need !== "keiner" && (
-              <span
-                className="text-meta-strong px-2 py-0.5 border"
-                style={{
-                  borderColor: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : "var(--border-color-soft)",
-                  color: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : undefined,
-                }}
-              >
-                {BATTERY_NEED_LABELS[e.battery_need] ?? e.battery_need}
-              </span>
-            )}
-            {e.user_group && (
+            {isFiltered ? (
               <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55">
-                {e.user_group}
+                vor-filtert
               </span>
-            )}
-            {e.deep_status === "done" && (
-              <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
-                deep
-              </span>
+            ) : (
+              <>
+                {e.priority_label && (
+                  <span
+                    className={`text-meta-strong px-2 py-0.5 border ${
+                      PRIO_COLORS[e.priority_label] ?? ""
+                    }`}
+                  >
+                    {e.priority_label}
+                  </span>
+                )}
+                {e.battery_need && e.battery_need !== "keiner" && (
+                  <span
+                    className="text-meta-strong px-2 py-0.5 border"
+                    style={{
+                      borderColor: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : "var(--border-color-soft)",
+                      color: e.battery_need === "sehr_hoch" ? "var(--color-gold)" : undefined,
+                    }}
+                  >
+                    {BATTERY_NEED_LABELS[e.battery_need] ?? e.battery_need}
+                  </span>
+                )}
+                {e.user_group && (
+                  <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55">
+                    {e.user_group}
+                  </span>
+                )}
+                {e.deep_status === "done" && (
+                  <span className="text-meta-strong px-2 py-0.5 border border-[var(--border-color)] text-[var(--color-near-black)]/70">
+                    deep
+                  </span>
+                )}
+              </>
             )}
             {e.booth && (
               <span className="ml-auto text-meta truncate">{e.booth}</span>

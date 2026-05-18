@@ -55,7 +55,10 @@ export default async function ExhibitorDetailPage({
         profile_url: exhibitor.profile_url,
         profile_data: exhibitor.profile_data as Record<string, unknown> | null,
         profile_enrich_status: exhibitor.profile_enrich_status,
+        pre_filter_status: exhibitor.pre_filter_status ?? null,
+        pre_filter_reason: exhibitor.pre_filter_reason ?? null,
       }}
+      borrowedFromShowName={shortIntel?.borrowed_from_show_name ?? null}
       shortIntel={
         shortIntel
           ? {

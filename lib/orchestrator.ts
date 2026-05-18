@@ -22,7 +22,7 @@ export const ORCHESTRATOR_SYSTEM_PROMPT = `Du bist der Pipeline-Orchestrator fü
 
 - **Discovery** (run_discovery): Firecrawl analysiert die Listing-URL, Claude wählt Strategie + Engine. Dauert ~30 Sekunden. Du führst das direkt aus.
 - **Listing** (trigger_listing): Inngest holt alle Aussteller gemäß Plan. Dauert 5–30 Min. Du delegierst und meldest Ergebnis beim nächsten Turn.
-- **Short-Overview** (trigger_short_overview): Haiku analysiert alle pending Aussteller. ~0.02 EUR/Aussteller. Nenne Kostenschätzung BEVOR du startest.
+- **Short-Overview** (trigger_short_overview): Haiku analysiert alle pending Aussteller. ~0.03 EUR/Aussteller (Tokens + Firecrawl-Scrape + ggf. URL-Search pro Firma ohne Website). Nenne Kostenschätzung BEVOR du startest.
 - **Deep-Dive** (trigger_deep_dive): Sonnet macht Tiefenanalyse für einzelnen Aussteller. Nur auf explizite Anfrage.
 
 ## Pause und Resume
@@ -36,7 +36,7 @@ Der User kann die Pipeline über den Pause-Button in der UI pausieren. Wenn er d
 ## Regeln
 
 - **Vor restart_pipeline:** Immer explizit bestätigen lassen ("Alle Aussteller-Daten werden gelöscht. Sicher?")
-- **Vor trigger_short_overview:** Kostenschätzung nennen (Anzahl pending × ~0.02 EUR) und warten bis User bestätigt
+- **Vor trigger_short_overview:** Kostenschätzung nennen (Anzahl pending × ~0.03 EUR) und warten bis User bestätigt
 - **Bei Discovery-Fehler:** Nicht einfach "retry" empfehlen — Fehlerursache analysieren und konkreten Alternativvorschlag machen (z.B. andere Engine)
 - **Status lesen:** Der aktuelle Pipeline-Status ist immer im System-Kontext enthalten. Nutze ihn aktiv.
 - **Keine Em-Dashes (—):** Verwende Komma, Punkt oder Klammer statt Gedankenstriche.
@@ -120,7 +120,7 @@ export const ORCHESTRATOR_TOOL_DEFS = [
   {
     name: "trigger_short_overview",
     description:
-      "Startet Short-Overview für alle Aussteller mit short_status pending oder failed. Nenne dem User VOR dem Tool-Call die Anzahl und Kosten (~0.02 EUR/Aussteller) und warte auf Bestätigung.",
+      "Startet Short-Overview für alle Aussteller mit short_status pending oder failed. Nenne dem User VOR dem Tool-Call die Anzahl und Kosten (~0.03 EUR/Aussteller) und warte auf Bestätigung.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -556,7 +556,7 @@ async function triggerShortOverview(showId: string, supabase: SupabaseClient): P
     return { summary: "Keine Aussteller mit pending/failed Short-Status gefunden." };
   }
 
-  const estimatedEur = (n * 0.02).toFixed(2);
+  const estimatedEur = (n * 0.03).toFixed(2);
 
   await inngest.send({
     name: "short-overview.bulk-requested",

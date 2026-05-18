@@ -303,6 +303,8 @@ async function AusstellerView({
     short_status: e.short_status,
     deep_status: e.deep_status,
     current_step: e.current_step ?? null,
+    pre_filter_status: e.pre_filter_status ?? null,
+    pre_filter_reason: e.pre_filter_reason ?? null,
     one_liner: e.exhibitor_short?.one_liner ?? null,
     priority_label: e.exhibitor_short?.priority_label ?? null,
     isp_sector_match: (e.exhibitor_short?.isp_sector_match ?? []) as string[],
@@ -320,6 +322,13 @@ async function AusstellerView({
     enriched = enriched.filter((e) => e.battery_need === searchParams.battery);
   if (sortKey === "match")
     enriched.sort((a, b) => (b.match_confidence ?? -1) - (a.match_confidence ?? -1));
+
+  // Gefilterte ans Ende — unabhängig vom Sortkey
+  enriched.sort((a, b) => {
+    const aFiltered = a.pre_filter_status === "filtered_out" ? 1 : 0;
+    const bFiltered = b.pre_filter_status === "filtered_out" ? 1 : 0;
+    return aFiltered - bFiltered;
+  });
 
   return (
     <ExhibitorList

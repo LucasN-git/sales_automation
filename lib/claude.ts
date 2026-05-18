@@ -1797,3 +1797,98 @@ Bevorzuge eine Sub-Seite (z.B. /exhibitors, /aussteller, /ausstellerverzeichnis,
     },
   };
 }
+
+// ---------- Pre-Filter ----------
+
+export type PreFilterInput = {
+  id: string;
+  company_name: string;
+  description: string | null;
+};
+
+export type PreFilterResult = {
+  id: string;
+  fit: boolean;
+  reason: string | null;
+};
+
+const PRE_FILTER_SYSTEM = `Du bist ein Relevanz-Filter fuer ISP Power Systems GmbH.
+ISP Power Systems entwickelt und fertigt anwendungsspezifische Batterie- und elektrifizierte Antriebssysteme fuer:
+Defense, Aeronautics, Mobile Robotics, Space, Maritime, Mobility.
+
+Deine Aufgabe: Bewerte eine Liste von Messeausstellern und entscheide, ob sie potenziell relevant fuer ISP Power Systems sind.
+
+WICHTIG: Sei SEHR DEFENSIV. Markiere nur als kein Fit (fit=false), wenn du SEHR SICHER bist, dass es keinerlei Schnittstelle gibt.
+Typische Ausschluesse: Bekleidung, Lebensmittel, Floristik, reine Consumer-Apps, Tourismus, Immobilien, Haarpflege, Kosmetik.
+Im Zweifel immer fit=true. Lieber 10 irrelevante Eintraege zu viel als einen echten Lead zu verlieren.
+
+Ruf das Tool submit_pre_filter_results genau einmal auf.`;
+
+export async function preFilterExhibitors(exhibitors: PreFilterInput[]): Promise<{
+  results: PreFilterResult[];
+  usage: Usage;
+}> {
+  const items = exhibitors
+    .map((e) => {
+      const desc = e.description ? ` — ${e.description.slice(0, 200)}` : "";
+      return `{"id":"${e.id}","name":"${e.company_name.replace(/"/g, "'")}${desc}"}`;
+    })
+    .join("\n");
+
+  const userContent = `Bewerte diese ${exhibitors.length} Aussteller:\n\n${items}`;
+
+  const response = await client().messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 4096,
+    system: PRE_FILTER_SYSTEM,
+    tools: [
+      {
+        name: "submit_pre_filter_results",
+        description: "Submit fit/no-fit decision for each exhibitor. Call exactly once.",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            results: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  fit: { type: "boolean" },
+                  reason: { type: "string", description: "Kurze Begruendung, nur wenn fit=false" },
+                },
+                required: ["id", "fit"],
+              },
+            },
+          },
+          required: ["results"],
+        },
+      },
+    ],
+    tool_choice: { type: "tool", name: "submit_pre_filter_results" },
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  const toolUse = response.content.find(
+    (b): b is Anthropic.ToolUseBlock =>
+      b.type === "tool_use" && b.name === "submit_pre_filter_results",
+  );
+  if (!toolUse) {
+    throw new Error(`Pre-filter tool call missing. stop=${response.stop_reason}`);
+  }
+
+  const raw = toolUse.input as { results: Array<{ id: string; fit: boolean; reason?: string }> };
+  const results: PreFilterResult[] = raw.results.map((r) => ({
+    id: r.id,
+    fit: r.fit,
+    reason: r.reason ?? null,
+  }));
+
+  return {
+    results,
+    usage: {
+      tokens_in: response.usage.input_tokens,
+      tokens_out: response.usage.output_tokens,
+    },
+  };
+}

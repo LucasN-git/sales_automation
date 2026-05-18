@@ -78,6 +78,12 @@ type Events = {
       userId: string;
     };
   };
+  "pre-filter.bulk-requested": {
+    data: { tradeShowId: string };
+  };
+  "pre-filter.batch.requested": {
+    data: { exhibitorIds: string[]; tradeShowId: string; batchIndex: number };
+  };
 };
 
 export const inngest = new Inngest({

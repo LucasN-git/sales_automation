@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -30,6 +32,8 @@ export type ExhibitorDetailClientProps = {
     profile_url: string | null;
     profile_data: Record<string, unknown> | null;
     profile_enrich_status: string | null;
+    pre_filter_status: string | null;
+    pre_filter_reason: string | null;
   };
   shortIntel: {
     one_liner: string | null;
@@ -53,6 +57,7 @@ export type ExhibitorDetailClientProps = {
     isp_service_fit: string | null;
     full_reasoning: string | null;
   } | null;
+  borrowedFromShowName?: string | null;
   deepPerCallUsd: number;
   deepEstimateHistorical: boolean;
   deepModel: string;
@@ -65,6 +70,7 @@ export function ExhibitorDetailClient({
   exId,
   showName,
   exhibitor,
+  borrowedFromShowName,
   shortIntel,
   deepIntel,
   deepPerCallUsd,
@@ -73,8 +79,31 @@ export function ExhibitorDetailClient({
   sectors,
   lifecycle,
 }: ExhibitorDetailClientProps) {
+  const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
+  const [overriding, setOverriding] = useState(false);
   const sectorById = new Map(sectors.map((s) => [s.id, s]));
   const lifecycleById = new Map(lifecycle.map((l) => [l.id, l]));
+
+  async function handleRefreshShort() {
+    setRefreshing(true);
+    try {
+      await fetch(`/api/exhibitors/${exId}/refresh-short`, { method: "POST" });
+      router.refresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function handlePreFilterOverride() {
+    setOverriding(true);
+    try {
+      await fetch(`/api/exhibitors/${exId}/pre-filter-override`, { method: "POST" });
+      router.refresh();
+    } finally {
+      setOverriding(false);
+    }
+  }
 
   return (
     <>
@@ -98,6 +127,21 @@ export function ExhibitorDetailClient({
         </div>
       </header>
 
+      {exhibitor.pre_filter_status === "filtered_out" && (
+        <div className="mb-6 px-4 py-3 border border-[var(--border-color-soft)] border-l-2 border-l-[var(--color-near-black)]/40 bg-[var(--color-near-black)]/[0.02] flex items-center justify-between gap-4 flex-wrap">
+          <span className="text-body-sm text-[var(--color-near-black)]/65">
+            vor-filtert: <span className="font-medium text-[var(--color-near-black)]">{exhibitor.pre_filter_reason ?? "kein ISP-fit erkannt"}</span>
+          </span>
+          <button
+            onClick={handlePreFilterOverride}
+            disabled={overriding}
+            className="text-body-sm border border-[var(--border-color)] px-3 py-1.5 hover:border-[var(--color-near-black)] transition-colors disabled:opacity-40 shrink-0"
+          >
+            {overriding ? "startet…" : "trotzdem analysieren"}
+          </button>
+        </div>
+      )}
+
       <Block label="kontakt & stammdaten">
         <ProfileBlock
           website={exhibitor.website}
@@ -108,6 +152,20 @@ export function ExhibitorDetailClient({
       </Block>
 
       <Block label="erst-einschaetzung (short)">
+        {borrowedFromShowName && (
+          <div className="mb-5 px-4 py-3 border border-[var(--border-color-soft)] border-l-2 border-l-[var(--color-near-black)]/40 bg-[var(--color-near-black)]/[0.02] flex items-center justify-between gap-4 flex-wrap">
+            <span className="text-body-sm text-[var(--color-near-black)]/65">
+              short overview uebernommen von: <span className="font-medium text-[var(--color-near-black)]">{borrowedFromShowName}</span>
+            </span>
+            <button
+              onClick={handleRefreshShort}
+              disabled={refreshing}
+              className="text-body-sm border border-[var(--border-color)] px-3 py-1.5 hover:border-[var(--color-near-black)] transition-colors disabled:opacity-40"
+            >
+              {refreshing ? "startet…" : "neu erstellen"}
+            </button>
+          </div>
+        )}
         {!shortIntel ? (
           <p className="text-body text-[var(--color-near-black)]/55">
             {exhibitor.short_status === "running"

@@ -439,7 +439,7 @@ export const crawlTradeShow = inngest.createFunction(
         tradeShowId,
         `Listing abgeschlossen: ${inserted.length} Aussteller gefunden${
           expected ? ` (${Math.round((inserted.length / expected) * 100)}% der erwarteten ${expected})` : ""
-        }. Du kannst jetzt den Short-Overview starten.`,
+        }. Pre-Filter laeuft automatisch im Hintergrund. Danach kannst du den Short-Overview starten.`,
       );
     });
 
@@ -462,6 +462,17 @@ export const crawlTradeShow = inngest.createFunction(
           data: { tradeShowId },
         });
       }
+    });
+
+    await step.run("trigger-pre-filter", async () => {
+      await inngest.send({
+        name: "pre-filter.bulk-requested",
+        data: { tradeShowId },
+      });
+      await tryAppendLog(supabase, tradeShowId, {
+        phase: "pre_filter",
+        message: "Pre-Filter gestartet (laeuft automatisch im Hintergrund)",
+      });
     });
 
     return { exhibitors: inserted.length };
@@ -495,7 +506,8 @@ export const shortOverviewBulk = inngest.createFunction(
         .from("exhibitors")
         .select("id, url_search_status")
         .eq("trade_show_id", tradeShowId)
-        .in("short_status", ["pending", "failed"]);
+        .in("short_status", ["pending", "failed"])
+        .not("pre_filter_status", "eq", "filtered_out");
       return data ?? [];
     });
 
@@ -506,6 +518,7 @@ export const shortOverviewBulk = inngest.createFunction(
     // url_search_status 'pending' = URL search not yet run — fan out search, not Short.
     // url_search_status 'running' = URL search in progress — skip for now.
     // url_search_status 'url_not_found' = never got a URL, short_status set to url_not_found so excluded by query above.
+    // pre_filter_status 'filtered_out' = kein ISP-Fit laut Pre-Filter, aus Bulk ausgeschlossen.
     const needsUrlSearch = targets.filter((r: any) => r.url_search_status === "pending");
     const shortReady = targets.filter((r: any) =>
       ["skipped", "done", "failed"].includes(r.url_search_status),
@@ -596,6 +609,86 @@ export const exhibitorShort = inngest.createFunction(
         max_input_chars: s?.short_max_input_chars ?? null,
       };
     });
+
+    const borrowed = await step.run("check-existing-short", async () => {
+      const { data: exhibitorWithCompany } = await supabase
+        .from("exhibitors")
+        .select("company_id")
+        .eq("id", exhibitorId)
+        .single();
+      if (!exhibitorWithCompany?.company_id) return null;
+
+      const { data: existing } = await supabase
+        .from("exhibitors")
+        .select("id, trade_show_id")
+        .eq("company_id", exhibitorWithCompany.company_id)
+        .eq("short_status", "done")
+        .neq("id", exhibitorId)
+        .limit(1)
+        .maybeSingle();
+      if (!existing) return null;
+
+      const [{ data: sourceShort }, { data: sourceShow }] = await Promise.all([
+        supabase
+          .from("exhibitor_short")
+          .select(
+            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need",
+          )
+          .eq("exhibitor_id", existing.id)
+          .maybeSingle(),
+        supabase
+          .from("trade_shows")
+          .select("name, year")
+          .eq("id", existing.trade_show_id)
+          .maybeSingle(),
+      ]);
+      if (!sourceShort) return null;
+
+      const showName = sourceShow
+        ? `${sourceShow.name}${sourceShow.year ? ` ${sourceShow.year}` : ""}`
+        : "andere Messe";
+      return { sourceExhibitorId: existing.id, shortData: sourceShort, showName };
+    });
+
+    if (borrowed) {
+      await step.run("borrow-short", async () => {
+        const { error } = await supabase.from("exhibitor_short").upsert(
+          {
+            exhibitor_id: exhibitorId,
+            ...borrowed.shortData,
+            borrowed_from_show_name: borrowed.showName,
+            tokens_in: 0,
+            tokens_out: 0,
+            firecrawl_credits: 0,
+          },
+          { onConflict: "exhibitor_id" },
+        );
+        if (error) throw new Error(`borrow-short upsert: ${error.message}`);
+
+        await supabase
+          .from("exhibitors")
+          .update({
+            short_status: "done",
+            borrowed_short_from_exhibitor_id: borrowed.sourceExhibitorId,
+            current_step: null,
+          })
+          .eq("id", exhibitorId);
+
+        revalidateTag(showExhibitorsTag(tradeShowId));
+        revalidateTag(exhibitorIntelTag(exhibitorId));
+
+        await tryAppendLog(supabase, tradeShowId, {
+          phase: "short",
+          message: `[Short] ${exhibitor.company_name}: uebernommen von ${borrowed.showName}`,
+        });
+      });
+
+      await step.run("notify-bulk-if-done", async () => {
+        await notifyShortBulkIfDone(supabase, tradeShowId);
+      });
+
+      return { ok: true, borrowed: true, showName: borrowed.showName };
+    }
 
     await step.run("mark-running", async () => {
       await supabase
@@ -2095,7 +2188,7 @@ export const crawlTradeShowListing = inngest.createFunction(
         tradeShowId,
         `Listing abgeschlossen: ${inserted.length} Aussteller gefunden${
           expected ? ` (${Math.round((inserted.length / expected) * 100)}% der erwarteten ${expected})` : ""
-        }. Du kannst jetzt den Short-Overview starten.`,
+        }. Pre-Filter laeuft automatisch im Hintergrund. Danach kannst du den Short-Overview starten.`,
       );
     });
 
@@ -2112,6 +2205,17 @@ export const crawlTradeShowListing = inngest.createFunction(
         });
         await inngest.send({ name: "profile-enrich.bulk-requested", data: { tradeShowId } });
       }
+    });
+
+    await step.run("trigger-pre-filter", async () => {
+      await inngest.send({
+        name: "pre-filter.bulk-requested",
+        data: { tradeShowId },
+      });
+      await tryAppendLog(supabase, tradeShowId, {
+        phase: "pre_filter",
+        message: "Pre-Filter gestartet (laeuft automatisch im Hintergrund)",
+      });
     });
 
     return { exhibitors: inserted.length };
@@ -2490,6 +2594,158 @@ export const competitorShort = inngest.createFunction(
   },
 );
 
+// ---------- Pre-Filter: Bulk-Fanout ----------
+
+export const preFilterBulk = inngest.createFunction(
+  { id: "pre-filter-bulk", retries: 1 },
+  { event: "pre-filter.bulk-requested" },
+  async ({ event, step }) => {
+    const { tradeShowId } = event.data as { tradeShowId: string };
+    const supabase = createServiceRoleClient();
+
+    const pending = await step.run("collect-pending", async () => {
+      const { data } = await supabase
+        .from("exhibitors")
+        .select("id")
+        .eq("trade_show_id", tradeShowId)
+        .eq("pre_filter_status", "pending");
+      return (data ?? []).map((r: any) => r.id as string);
+    });
+
+    if (pending.length === 0) {
+      return { skipped: true, reason: "no pending exhibitors" };
+    }
+
+    await step.run("mark-running", async () => {
+      await supabase
+        .from("exhibitors")
+        .update({ pre_filter_status: "running" })
+        .in("id", pending);
+    });
+
+    await tryAppendLog(supabase, tradeShowId, {
+      phase: "pre_filter",
+      message: `Pre-Filter: ${pending.length} Aussteller werden bewertet (${Math.ceil(pending.length / 25)} Batches)`,
+    });
+
+    const BATCH_SIZE = 25;
+    const batches: string[][] = [];
+    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+      batches.push(pending.slice(i, i + BATCH_SIZE));
+    }
+
+    await step.run("fan-out-batches", async () => {
+      const events = batches.map((ids, idx) => ({
+        name: "pre-filter.batch.requested" as const,
+        data: { exhibitorIds: ids, tradeShowId, batchIndex: idx },
+      }));
+      await inngest.send(events as any);
+    });
+
+    return { batches: batches.length, total: pending.length };
+  },
+);
+
+// ---------- Pre-Filter: Batch-Verarbeitung ----------
+
+export const preFilterBatch = inngest.createFunction(
+  {
+    id: "pre-filter-batch",
+    concurrency: { limit: 4 },
+    throttle: { limit: 10, period: "1m" },
+    retries: 2,
+  },
+  { event: "pre-filter.batch.requested" },
+  async ({ event, step }) => {
+    const { exhibitorIds, tradeShowId } = event.data as {
+      exhibitorIds: string[];
+      tradeShowId: string;
+      batchIndex: number;
+    };
+    const supabase = createServiceRoleClient();
+
+    const { preFilterExhibitors } = await import("@/lib/claude");
+
+    const exhibitors = await step.run("load-exhibitors", async () => {
+      const { data } = await supabase
+        .from("exhibitors")
+        .select("id, company_name, listing_raw, profile_data")
+        .in("id", exhibitorIds);
+      return data ?? [];
+    });
+
+    const inputs = exhibitors.map((e: any) => {
+      const desc =
+        e.profile_data?.description ||
+        e.listing_raw?.description ||
+        e.listing_raw?.category ||
+        e.listing_raw?.hall ||
+        null;
+      return {
+        id: e.id as string,
+        company_name: e.company_name as string,
+        description: desc ? String(desc).slice(0, 200) : null,
+      };
+    });
+
+    const { results, usage } = await step.run("claude-pre-filter", async () => {
+      return preFilterExhibitors(inputs);
+    });
+
+    await step.run("persist-results", async () => {
+      for (const r of results) {
+        await supabase
+          .from("exhibitors")
+          .update({
+            pre_filter_status: r.fit ? "passed" : "filtered_out",
+            pre_filter_reason: r.fit ? null : r.reason,
+          })
+          .eq("id", r.id);
+      }
+    });
+
+    const filteredOut = results.filter((r) => !r.fit).length;
+
+    await step.run("check-bulk-done", async () => {
+      const { count } = await supabase
+        .from("exhibitors")
+        .select("id", { count: "exact", head: true })
+        .eq("trade_show_id", tradeShowId)
+        .in("pre_filter_status", ["pending", "running"]);
+
+      if ((count ?? 0) === 0) {
+        const { count: totalFiltered } = await supabase
+          .from("exhibitors")
+          .select("id", { count: "exact", head: true })
+          .eq("trade_show_id", tradeShowId)
+          .eq("pre_filter_status", "filtered_out");
+        const { count: totalPassed } = await supabase
+          .from("exhibitors")
+          .select("id", { count: "exact", head: true })
+          .eq("trade_show_id", tradeShowId)
+          .eq("pre_filter_status", "passed");
+
+        await postToOrchestratorThread(
+          supabase,
+          tradeShowId,
+          `Pre-Filter abgeschlossen: ${totalPassed ?? 0} relevant, ${totalFiltered ?? 0} herausgefiltert. Jetzt kannst du den Short-Overview starten.`,
+        );
+        await tryAppendLog(supabase, tradeShowId, {
+          phase: "pre_filter",
+          message: `Pre-Filter fertig: ${totalPassed ?? 0} passed, ${totalFiltered ?? 0} filtered_out`,
+        });
+      }
+    });
+
+    return {
+      processed: results.length,
+      filtered_out: filteredOut,
+      tokens_in: usage.tokens_in,
+      tokens_out: usage.tokens_out,
+    };
+  },
+);
+
 export const functions = [
   crawlTradeShow,
   crawlTradeShowListing,
@@ -2507,4 +2763,6 @@ export const functions = [
   showResultFirecrawl,
   competitorShortBulk,
   competitorShort,
+  preFilterBulk,
+  preFilterBatch,
 ];

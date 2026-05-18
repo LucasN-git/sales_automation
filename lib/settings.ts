@@ -189,8 +189,8 @@ mit Relevanz-Score.
 
 ## Kosten — wo entsteht was
 
-- **Short-Overview** (Haiku 4.5): ~0.02 EUR pro Aussteller. Bei 1000 Ausstellern: ~20 EUR.
-- **Deep-Dive** (Sonnet 4.6): ~0.10-0.20 EUR pro Lead.
+- **Short-Overview** (Haiku 4.5): ~0.03 EUR pro Aussteller (Tokens + Firecrawl-Scrape + ggf. URL-Search). Bei 1000 Ausstellern: ~30 EUR.
+- **Deep-Dive** (Sonnet 4.6): ~0.05-0.15 EUR pro Lead (je nach Inputgroesse und Firecrawl).
 - **Konkurrenten-Discovery** (Web-Suche): ~0.15-0.30 EUR pro Lauf.
 - **Messen-Suche** (Opus + Web-Suche): ~0.20 EUR pro Lauf.
 - **Chat selbst**: typisch < 0.05 EUR pro Nachricht.
