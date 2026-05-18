@@ -131,3 +131,34 @@ export async function scrapeCompanySite(url: string): Promise<string> {
     return "";
   }
 }
+
+/**
+ * Map all URLs reachable from a given URL using Firecrawl Map.
+ * Returns a flat list of discovered links (empty on failure).
+ */
+export async function mapShowUrl(url: string): Promise<string[]> {
+  try {
+    const result: any = await app().mapUrl(url);
+    return (result?.links ?? result ?? []) as string[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Web search via Firecrawl. Returns up to `limit` result URLs.
+ */
+export async function searchFirecrawl(
+  query: string,
+  limit = 5,
+): Promise<Array<{ url: string; title?: string }>> {
+  try {
+    const result: any = await app().search(query, { limit });
+    const items: any[] = result?.data ?? result ?? [];
+    return items
+      .map((r: any) => ({ url: r.url ?? r, title: r.title }))
+      .filter((r) => typeof r.url === "string");
+  } catch {
+    return [];
+  }
+}

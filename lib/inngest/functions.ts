@@ -4,7 +4,7 @@ import { revalidateTag } from "next/cache";
 import { inngest } from "./client";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { showExhibitorsTag, exhibitorIntelTag } from "@/lib/show-cache";
-import { scrapeCompanySite, scrapeShowSite } from "@/lib/firecrawl";
+import { scrapeCompanySite, scrapeShowSite, mapShowUrl } from "@/lib/firecrawl";
 import {
   enrichShort,
   enrichDeep,
@@ -2746,6 +2746,128 @@ export const preFilterBatch = inngest.createFunction(
   },
 );
 
+// ---------------------------------------------------------------------------
+// Map Listing — Firecrawl Map → Slug extraction → bulk insert
+// ---------------------------------------------------------------------------
+
+const exhibitorMapListing = inngest.createFunction(
+  { id: "exhibitor-map-listing", name: "Exhibitor Map Listing (Slug Extraction)" },
+  { event: "exhibitor.map.listing.requested" },
+  async ({ event, step }) => {
+    const { tradeShowId } = event.data as { tradeShowId: string };
+    const supabase = createServiceRoleClient();
+
+    const show = await step.run("load-show", async () => {
+      const { data } = await supabase
+        .from("trade_shows")
+        .select("id, name, source_url, user_id")
+        .eq("id", tradeShowId)
+        .single();
+      return data;
+    });
+
+    if (!show) return { error: "show not found" };
+    if (!show.source_url) {
+      await postToOrchestratorThread(supabase, tradeShowId,
+        "Map-Listing: Keine Aussteller-URL hinterlegt. Bitte zuerst eine URL setzen.",
+      );
+      return { error: "no source_url" };
+    }
+
+    await tryAppendLog(supabase, tradeShowId, {
+      phase: "listing",
+      message: `Map-Listing: Firecrawl Map auf ${show.source_url}`,
+    });
+
+    const allUrls = await step.run("firecrawl-map", async () => {
+      return mapShowUrl(show.source_url as string);
+    });
+
+    if (allUrls.length === 0) {
+      await postToOrchestratorThread(supabase, tradeShowId,
+        "Map-Listing: Firecrawl Map hat keine URLs zurückgegeben. Bitte eine andere URL prüfen oder CSV manuell hochladen.",
+      );
+      await tryAppendLog(supabase, tradeShowId, {
+        phase: "listing",
+        level: "error",
+        message: "Map-Listing: Keine URLs von Firecrawl Map erhalten",
+      });
+      return { error: "no urls from map", inserted: 0 };
+    }
+
+    const exhibitorUrls = await step.run("detect-pattern", async () => {
+      // Count path-prefix occurrences to find the most common exhibitor subdirectory
+      const prefixCounts = new Map<string, number>();
+      for (const url of allUrls) {
+        try {
+          const u = new URL(url);
+          const parts = u.pathname.split("/").filter(Boolean);
+          if (parts.length >= 2) {
+            const prefix = "/" + parts.slice(0, -1).join("/") + "/";
+            prefixCounts.set(prefix, (prefixCounts.get(prefix) ?? 0) + 1);
+          }
+        } catch { /* skip malformed */ }
+      }
+      // Best prefix: most URLs, minimum 5 to be meaningful
+      let bestPrefix: string | null = null;
+      let bestCount = 0;
+      for (const [prefix, count] of prefixCounts) {
+        if (count >= 5 && count > bestCount) { bestPrefix = prefix; bestCount = count; }
+      }
+      if (!bestPrefix) return allUrls;
+      return allUrls.filter((url) => {
+        try { return new URL(url).pathname.startsWith(bestPrefix!); }
+        catch { return false; }
+      });
+    });
+
+    if (exhibitorUrls.length === 0) {
+      await postToOrchestratorThread(supabase, tradeShowId,
+        `Map-Listing: ${allUrls.length} URLs gefunden aber kein Aussteller-URL-Muster erkannt (mindestens 5 gleichartige Unterseiten noetig). Bitte CSV manuell hochladen.`,
+      );
+      return { error: "no exhibitor pattern", urls_found: allUrls.length, inserted: 0 };
+    }
+
+    const inserted = await step.run("bulk-insert", async () => {
+      const rows = exhibitorUrls.map((url) => {
+        const pathname = new URL(url).pathname;
+        const slug = pathname.split("/").filter(Boolean).pop() ?? "";
+        const cleanSlug = slug.replace(/-\d+$/, "");
+        const name = cleanSlug
+          .split("-")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+        return { trade_show_id: tradeShowId, company_name: name, profile_url: url };
+      }).filter((r) => r.company_name.length > 1);
+
+      const CHUNK = 100;
+      let total = 0;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const { data } = await supabase
+          .from("exhibitors")
+          .upsert(rows.slice(i, i + CHUNK), { onConflict: "trade_show_id,company_name", ignoreDuplicates: true })
+          .select("id");
+        total += data?.length ?? 0;
+      }
+      revalidateTag(showExhibitorsTag(tradeShowId));
+      return total;
+    });
+
+    await step.run("post-to-thread", async () => {
+      await postToOrchestratorThread(supabase, tradeShowId,
+        `Map-Listing abgeschlossen: ${inserted} neue Aussteller eingefuegt (${exhibitorUrls.length} Unterseiten erkannt, ${allUrls.length} gesamt gemappt). Firmennamen aus URL-Slugs extrahiert. Naechste Schritte: URL-Search starten (fuer Aussteller ohne Website), dann Short-Overview.`,
+      );
+    });
+
+    await tryAppendLog(supabase, tradeShowId, {
+      phase: "listing",
+      message: `Map-Listing fertig: ${inserted} eingefuegt, ${exhibitorUrls.length} Aussteller-URLs erkannt`,
+    });
+
+    return { inserted, urls_found: exhibitorUrls.length, total_mapped: allUrls.length };
+  },
+);
+
 export const functions = [
   crawlTradeShow,
   crawlTradeShowListing,
@@ -2765,4 +2887,5 @@ export const functions = [
   competitorShort,
   preFilterBulk,
   preFilterBatch,
+  exhibitorMapListing,
 ];

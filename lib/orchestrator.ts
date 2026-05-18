@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { revalidateTag } from "next/cache";
 import { inngest } from "@/lib/inngest/client";
 import { discoverSiteStrategy } from "@/lib/discovery";
 import { CrawlPlanSchema } from "@/lib/crawl-plan";
 import { tryAppendLog, loadCrawlState } from "@/lib/crawl-log";
 import { priceFor } from "@/lib/pricing";
 import { SHORT_MODEL_DEFAULT, getSettings, effectiveHandbook } from "@/lib/settings";
+import { showExhibitorsTag } from "@/lib/show-cache";
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -68,6 +70,14 @@ Danach typischerweise:
 
 Kein Bestaetungs-Widget noetig, direkt ausfuehren. Aber: wenn die Messe bereits Aussteller hat, vorher kurz anmerken dass der bisherige Plan und ggf. nicht-passende Aussteller-Daten verworfen werden sollten. Schlage delete_exhibitors vor falls die alten Aussteller zur alten URL gehoeren.
 
+## CSV-Import
+
+Wenn der User eine CSV-Datei anhängt oder sagt "CSV importieren", rufe **import_from_csv** auf. Das Tool parsed den CSV-Inhalt und fügt alle Aussteller direkt in die Messe ein. Kein Bestätigungs-Widget, kein Listing-Plan nötig — direkt ausführen. Nenne danach die Anzahl der eingefügten Aussteller und schlage URL-Search + Short-Overview vor.
+
+## Map-Listing als Fallback-Strategie
+
+Wenn das Standard-Listing fehlschlägt (status=failed, Engine-Fehler, oder keine Aussteller gefunden trotz Listing), biete **trigger_map_listing** als Fallback an. Diese Strategie nutzt Firecrawl Map: sie entdeckt alle Unterseiten der Messe-URL, erkennt das Aussteller-URL-Muster automatisch und extrahiert Firmennamen aus den Slugs. Kein LLM-Aufruf, kein Crawl-Plan nötig. Läuft im Hintergrund via Inngest. Geeignet wenn: (1) Standard-Listing 0 Aussteller zurückgibt, (2) Engine-Fehler bei algolia_api oder browserbase, (3) keine strukturierte Listing-Seite vorhanden.
+
 ## Funktionsweise des Tools — read_handbook
 
 Wenn der User Fragen zur Funktionsweise des Tools, zur Bedeutung von Status-Werten, zu Modulen (Companies, Konkurrenten, Show-Discovery, Kosten), zu typischen Workflows oder allgemein "wie funktioniert das hier" stellt, rufe **read_handbook** auf. Das Tool liefert die vollstaendige Anleitung als Markdown. Nutze es nur bei Funktions-Fragen, NICHT fuer Status-Abfragen zur aktuellen Messe oder zu einzelnen Ausstellern — diese Infos hast du bereits im Kontext.`;
@@ -87,7 +97,9 @@ export type OrchestratorToolInput =
   | { tool: "delete_exhibitors"; input: { exhibitor_ids: string[]; reason: string } }
   | { tool: "add_exhibitor"; input: { company_name: string; website?: string; booth?: string; reason: string } }
   | { tool: "regenerate_short"; input: { exhibitor_ids: string[] } }
-  | { tool: "update_show_url"; input: { url: string } };
+  | { tool: "update_show_url"; input: { url: string } }
+  | { tool: "import_from_csv"; input: { csv_content: string } }
+  | { tool: "trigger_map_listing"; input: Record<string, never> };
 
 export type ToolResult = { summary: string; detail?: Record<string, unknown> };
 
@@ -253,6 +265,31 @@ export const ORCHESTRATOR_TOOL_DEFS = [
       required: [],
     },
   },
+  {
+    name: "import_from_csv",
+    description:
+      "Importiert Aussteller aus einer CSV-Datei direkt in die Messe. Parsed den CSV-Inhalt, fuegt alle erkannten Firmen ein und gibt die Anzahl der eingefuegten Aussteller zurueck. Kein Bestaetigungs-Widget. Spaltenaliase: name/company_name/firma/aussteller (Pflicht), website/url/homepage, booth/stand/booth_number, profile_url, linkedin_url. CSV-Inhalt kommt aus dem Kontext der Nutzer-Nachricht.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        csv_content: {
+          type: "string",
+          description: "Der vollstaendige Inhalt der CSV-Datei als Text (mit Header-Zeile)",
+        },
+      },
+      required: ["csv_content"],
+    },
+  },
+  {
+    name: "trigger_map_listing",
+    description:
+      "Fallback-Listing-Strategie: Firecrawl Map entdeckt alle Unterseiten der Messe-URL, erkennt automatisch das Aussteller-URL-Muster und extrahiert Firmennamen aus den Slugs. Kein LLM-Aufruf, kein Crawl-Plan noetig. Laueft im Hintergrund via Inngest. Verwende dieses Tool wenn: (1) Standard-Listing 0 Aussteller zurueckgibt, (2) Engine-Fehler bei algolia_api oder browserbase, (3) keine strukturierte Listing-Seite vorhanden ist.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ] as const;
 
 export const ORCHESTRATOR_TOOL_NAMES = new Set(ORCHESTRATOR_TOOL_DEFS.map((t) => t.name));
@@ -389,6 +426,16 @@ export async function executePipelineTool(
         summary: `Anleitung geladen (${handbook.length} Zeichen).`,
         detail: { handbook },
       };
+    }
+    case "import_from_csv": {
+      const { csv_content } = (input ?? {}) as { csv_content?: string };
+      if (!csv_content?.trim()) {
+        return { summary: "import_from_csv: kein CSV-Inhalt uebergeben." };
+      }
+      return importFromCsv(showId, csv_content, supabase);
+    }
+    case "trigger_map_listing": {
+      return triggerMapListing(showId, supabase);
     }
     default:
       return { summary: `Unbekanntes Tool: ${toolName}` };
@@ -705,4 +752,139 @@ async function restartPipeline(showId: string, supabase: SupabaseClient): Promis
   await inngest.send({ name: "trade-show.listing-requested", data: { tradeShowId: showId } });
 
   return { summary: "Pipeline neu gestartet: alle Aussteller-Daten geloescht, Listing laeuft." };
+}
+
+// ---------------------------------------------------------------------------
+// CSV parser (RFC 4180, auto-detects separator)
+// ---------------------------------------------------------------------------
+
+function detectSepCsv(line: string): string {
+  return (line.match(/;/g) ?? []).length > (line.match(/,/g) ?? []).length ? ";" : ",";
+}
+
+function splitLineCsv(line: string, sep: string): string[] {
+  const result: string[] = [];
+  let inQuote = false;
+  let current = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"' && !inQuote) { inQuote = true; }
+    else if (ch === '"' && inQuote) {
+      if (line[i + 1] === '"') { current += '"'; i++; }
+      else inQuote = false;
+    } else if (ch === sep && !inQuote) { result.push(current.trim()); current = ""; }
+    else { current += ch; }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function colOfCsv(headers: string[], keys: string[]): number {
+  for (const k of keys) { const i = headers.indexOf(k); if (i !== -1) return i; }
+  return -1;
+}
+
+async function importFromCsv(
+  showId: string,
+  csvContent: string,
+  supabase: SupabaseClient,
+): Promise<ToolResult> {
+  const lines = csvContent.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return { summary: "CSV hat keine Datenzeilen." };
+
+  const sep = detectSepCsv(lines[0]);
+  const headers = splitLineCsv(lines[0], sep).map((h) =>
+    h.toLowerCase().replace(/["\s]/g, "").replace(/[^a-z_]/g, "_"),
+  );
+
+  const nameCol = colOfCsv(headers, ["name", "company_name", "firma", "aussteller"]);
+  if (nameCol === -1) {
+    return { summary: 'CSV: Keine Namensspalte gefunden ("name", "company_name", "firma", "aussteller").' };
+  }
+
+  const websiteCol  = colOfCsv(headers, ["website", "url", "homepage", "web"]);
+  const boothCol    = colOfCsv(headers, ["booth", "stand", "booth_number", "stand_nr"]);
+  const profileCol  = colOfCsv(headers, ["profile_url", "profil_url", "exhibitor_url", "detail_url"]);
+  const linkedinCol = colOfCsv(headers, ["linkedin", "linkedin_url"]);
+
+  const rows: Array<{
+    trade_show_id: string;
+    company_name: string;
+    website: string | null;
+    booth: string | null;
+    profile_url: string | null;
+    linkedin_url: string | null;
+  }> = [];
+
+  for (const line of lines.slice(1)) {
+    const cells = splitLineCsv(line, sep);
+    const name = cells[nameCol]?.trim() ?? "";
+    if (!name) continue;
+    rows.push({
+      trade_show_id: showId,
+      company_name:  name,
+      website:       websiteCol  !== -1 ? cells[websiteCol]?.trim()  || null : null,
+      booth:         boothCol    !== -1 ? cells[boothCol]?.trim()    || null : null,
+      profile_url:   profileCol  !== -1 ? cells[profileCol]?.trim()  || null : null,
+      linkedin_url:  linkedinCol !== -1 ? cells[linkedinCol]?.trim() || null : null,
+    });
+  }
+
+  if (rows.length === 0) return { summary: "CSV: Keine Zeilen mit Firmennamen gefunden." };
+
+  const CHUNK = 100;
+  let inserted = 0;
+  let skipped = 0;
+  let firstError: string | null = null;
+
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from("exhibitors")
+      .upsert(rows.slice(i, i + CHUNK), { onConflict: "trade_show_id,company_name", ignoreDuplicates: true })
+      .select("id");
+    if (error) {
+      if (!firstError) firstError = error.message;
+      skipped += Math.min(CHUNK, rows.length - i);
+    } else {
+      inserted += data?.length ?? 0;
+    }
+  }
+
+  revalidateTag(showExhibitorsTag(showId));
+
+  await tryAppendLog(supabase, showId, {
+    phase: "listing",
+    message: `Orchestrator CSV-Import: ${inserted} eingefuegt, ${skipped} uebersprungen`,
+  });
+
+  const extra = firstError ? ` (DB-Fehler: ${firstError})` : "";
+  return {
+    summary: `CSV-Import abgeschlossen: ${inserted} Aussteller hinzugefuegt${skipped > 0 ? `, ${skipped} uebersprungen` : ""}${extra}. Naechste Schritte: URL-Search starten (fuer Aussteller ohne Website), dann Short-Overview.`,
+  };
+}
+
+async function triggerMapListing(showId: string, supabase: SupabaseClient): Promise<ToolResult> {
+  const { data: show } = await supabase
+    .from("trade_shows")
+    .select("source_url, name")
+    .eq("id", showId)
+    .single();
+
+  if (!show?.source_url) {
+    return { summary: "Map-Listing: Keine Aussteller-URL hinterlegt. Bitte zuerst eine URL setzen." };
+  }
+
+  await inngest.send({
+    name: "exhibitor.map.listing.requested",
+    data: { tradeShowId: showId },
+  });
+
+  await tryAppendLog(supabase, showId, {
+    phase: "listing",
+    message: "Orchestrator: Map-Listing gestartet (Firecrawl Map + Slug-Extraktion)",
+  });
+
+  return {
+    summary: `Map-Listing gestartet fuer "${show.name}". Firecrawl Map analysiert alle Unterseiten und extrahiert Firmennamen aus den URL-Slugs. Laueft im Hintergrund, der Orchestrator meldet sich wenn es fertig ist.`,
+  };
 }

@@ -536,3 +536,24 @@ export function InfoIcon({ size = 12, className = "" }: IconProps) {
     </svg>
   );
 }
+
+export function PaperclipIcon({ size = 16, className = "" }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M13.5 7.5L7.5 13.5C6.1 14.9 3.9 14.9 2.5 13.5C1.1 12.1 1.1 9.9 2.5 8.5L8.5 2.5C9.5 1.5 11 1.5 12 2.5C13 3.5 13 5 12 6L6.5 11.5C5.9 12.1 4.9 12.1 4.3 11.5C3.7 10.9 3.7 9.9 4.3 9.3L9.5 4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

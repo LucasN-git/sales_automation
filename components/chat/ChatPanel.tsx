@@ -10,6 +10,7 @@ import {
   HistoryIcon,
   InfoIcon,
   MoreVerticalIcon,
+  PaperclipIcon,
   PlusIcon,
   SendIcon,
   StopIcon,
@@ -261,6 +262,7 @@ export function ChatPanel({
   const [historyTab, setHistoryTab] = useState<"current" | "all">("current");
   const [crossScopeThreads, setCrossScopeThreads] = useState<Thread[] | null>(null);
   const [showDeepDone, setShowDeepDone] = useState(false);
+  const [csvAttachment, setCsvAttachment] = useState<{ name: string; text: string } | null>(null);
   const prevDeepStatusRef = useRef<string | null | undefined>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -418,7 +420,8 @@ export function ChatPanel({
   }
 
   async function send(overrideMsg?: string) {
-    const q = (overrideMsg ?? input).trim();
+    const rawInput = (overrideMsg ?? input).trim();
+    const q = rawInput || (csvAttachment ? "CSV importieren" : "");
     if (!q) return;
     // If a stream is in flight, abort it so the new prompt can take over.
     // Ref is not nulled here — it's overwritten below, and the superseded
@@ -436,8 +439,11 @@ export function ChatPanel({
     setPendingConfirmation(null);
     setLastCost(null);
     const localPipelineCards: PipelineCard[] = [];
+    const attachedCsv = csvAttachment;
     if (!overrideMsg) setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: q }]);
+    setCsvAttachment(null);
+    const displayMsg = rawInput || (attachedCsv ? `CSV importieren (${attachedCsv.name})` : q);
+    setMessages((prev) => [...prev, { role: "user", content: displayMsg }]);
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
@@ -447,6 +453,9 @@ export function ChatPanel({
         model,
         with_web_search: withWebSearch,
       };
+      if (attachedCsv) {
+        body.csv_content = attachedCsv.text;
+      }
       if (focusBodyKey) body[focusBodyKey] = focusId;
       if (scope.kind === "show") {
         body.with_deep_context = withDeepContext && !!focusId && hasDeep;
@@ -935,6 +944,9 @@ export function ChatPanel({
             sending={sending}
             onSend={send}
             onStop={stop}
+            csvAttachment={csvAttachment}
+            onCsvAttach={setCsvAttachment}
+            showCsvAttach={scope.kind === "show"}
           />
         </div>
       </div>
@@ -952,6 +964,8 @@ const PIPELINE_TOOL_LABELS: Record<string, string> = {
   restart_pipeline: "Pipeline neu gestartet",
   delete_exhibitors: "Aussteller loeschen",
   add_exhibitor: "Aussteller hinzufuegen",
+  import_from_csv: "CSV-Import",
+  trigger_map_listing: "Map-Listing",
   get_discovery_status: "Discovery-Status",
   trigger_short_analysis: "Short-Analyse",
   curate_competitors: "Konkurrenten kuratieren",
@@ -1767,21 +1781,73 @@ function ChatInput({
   sending,
   onSend,
   onStop,
+  csvAttachment,
+  onCsvAttach,
+  showCsvAttach,
 }: {
   input: string;
   setInput: (s: string) => void;
   sending: boolean;
   onSend: () => void;
   onStop: () => void;
+  csvAttachment: { name: string; text: string } | null;
+  onCsvAttach: (att: { name: string; text: string } | null) => void;
+  showCsvAttach?: boolean;
 }) {
-  // While a stream is running, the button stops it — unless the user has
-  // typed a new prompt, in which case sending it implicitly aborts the
-  // running stream (see send() in ChatPanel) and starts the new one.
-  const hasInput = input.trim().length > 0;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const hasInput = input.trim().length > 0 || !!csvAttachment;
   const buttonMode: "send" | "stop" = sending && !hasInput ? "stop" : "send";
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      onCsvAttach({ name: file.name, text });
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
   return (
     <footer className="px-4 pb-4 pt-3 bg-[var(--color-cream-sunken)] border-t border-[var(--border-color-soft)] shrink-0">
+      {csvAttachment && (
+        <div className="mb-2 flex items-center gap-1.5 text-meta text-[var(--color-near-black)]/70">
+          <span className="inline-block w-1.5 h-1.5 bg-[var(--color-gold)]" />
+          <span className="truncate max-w-[200px]">{csvAttachment.name}</span>
+          <button
+            type="button"
+            onClick={() => onCsvAttach(null)}
+            className="ml-1 text-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)] transition-colors"
+            aria-label="CSV entfernen"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className="relative">
+        {showCsvAttach && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              title="CSV-Datei anhängen"
+              aria-label="CSV-Datei anhängen"
+              className="absolute bottom-2.5 left-2.5 w-8 h-8 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)]/70 disabled:opacity-30 transition-colors"
+            >
+              <PaperclipIcon size={15} />
+            </button>
+          </>
+        )}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -1793,7 +1859,7 @@ function ChatInput({
           }}
           placeholder={sending ? "neue frage stellen oder antwort stoppen…" : "frage stellen…"}
           rows={2}
-          className="w-full bg-white border border-[var(--border-color-soft)] rounded-xl py-3 pl-4 pr-14 text-body focus:outline-none focus:border-[var(--color-near-black)]/50 resize-none"
+          className={`w-full bg-white border border-[var(--border-color-soft)] rounded-xl py-3 pr-14 text-body focus:outline-none focus:border-[var(--color-near-black)]/50 resize-none ${showCsvAttach ? "pl-11" : "pl-4"}`}
         />
         <button
           onClick={buttonMode === "stop" ? onStop : onSend}

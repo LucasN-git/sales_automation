@@ -27,6 +27,7 @@ const Body = z.object({
   exhibitor_focus: z.string().uuid().nullable().optional(),
   with_deep_context: z.boolean().optional(),
   with_web_search: z.boolean().optional(),
+  csv_content: z.string().max(500_000).optional(),
 });
 
 // Fields editable via update_exhibitor_intel client tool
@@ -232,6 +233,12 @@ export async function POST(
   }
   if (crawlState) {
     systemBlocks.push({ type: "text", text: renderCrawlStateBlock(crawlState) });
+  }
+  if (body.csv_content?.trim()) {
+    systemBlocks.push({
+      type: "text",
+      text: `# CSV-Anhang\n\nDer User hat eine CSV-Datei mit Ausstellerdaten angehängt. Rufe jetzt **import_from_csv** auf und übergib den folgenden CSV-Inhalt komplett als csv_content-Parameter. Kein Bestätigungs-Widget nötig, direkt importieren.\n\n<csv_content>\n${body.csv_content.slice(0, 100_000)}\n</csv_content>`,
+    });
   }
 
   // -----------------------------------------------------------------------

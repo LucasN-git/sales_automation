@@ -84,6 +84,9 @@ type Events = {
   "pre-filter.batch.requested": {
     data: { exhibitorIds: string[]; tradeShowId: string; batchIndex: number };
   };
+  "exhibitor.map.listing.requested": {
+    data: { tradeShowId: string };
+  };
 };
 
 export const inngest = new Inngest({
