@@ -41,7 +41,7 @@ STRATEGIES (required field "strategy"):
 1. "letter_loop" — page has an A–Z (often plus "#") filter where each letter shows a subset. Prefer this whenever a letter bar is visible and clicking a letter changes the URL with a filter param. Common Algolia pattern: ?state[menu][filterAZ]=X.
    Required fields when chosen: url_template, letters, has_show_more, show_more_selector.
    - url_template uses {base} and {letter} placeholders, e.g. "{base}?state[menu][filterAZ]={letter}"
-   - letters is typically ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","#"]
+   - letters is typically ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","#"] — each entry must be 1-2 chars, no empty strings
    - has_show_more: true if a "Show more" button still appears WITHIN a letter view
    - show_more_selector: CSS selector for that button, or null if has_show_more=false
 
@@ -97,8 +97,9 @@ const CRAWL_PLAN_INPUT_SCHEMA = {
     },
     letters: {
       type: "array",
-      items: { type: "string" },
-      description: "Required for letter_loop. Letters to iterate through.",
+      items: { type: "string", minLength: 1, maxLength: 2 },
+      description:
+        "Required for letter_loop. Letters to iterate through. Each entry must be exactly 1-2 chars (e.g. 'A', '#'). No empty strings, no words like 'All'.",
     },
     has_show_more: {
       type: "boolean",
@@ -221,6 +222,104 @@ export type DiscoveryResult = {
 };
 
 /**
+ * Scan HTML for Algolia InstantSearch signals. Returns extracted hints if
+ * found (app_id_hint, index_hint) plus a human-readable summary string that
+ * gets injected into the Claude prompt so it reliably picks algolia_api even
+ * when the React app hasn't hydrated yet in Firecrawl's snapshot.
+ */
+function detectAlgoliaSignals(html: string): {
+  found: boolean;
+  app_id_hint: string | null;
+  index_hint: string | null;
+  summary: string;
+} {
+  const signals: string[] = [];
+
+  if (/\bais-[A-Za-z]/.test(html)) signals.push("ais- CSS classes");
+  if (/algolia\.net/.test(html)) signals.push("algolia.net reference");
+  if (/window\.__ALGOLIA__/.test(html)) signals.push("window.__ALGOLIA__");
+  if (/aa-Input|aa-Form/.test(html)) signals.push("Algolia Autocomplete widget");
+
+  const appIdMatch = html.match(/(?:data-app-id|appId)[=:\s"']+([A-Z0-9]{8,12})/);
+  const app_id_hint = appIdMatch?.[1] ?? null;
+  if (app_id_hint) signals.push(`appId="${app_id_hint}"`);
+
+  const indexMatch = html.match(/(?:indexName|index_name|searchIndex)[=:\s"']+([A-Za-z0-9_\-]{4,60})/);
+  const index_hint = indexMatch?.[1] ?? null;
+  if (index_hint) signals.push(`indexName="${index_hint}"`);
+
+  const found = signals.length > 0;
+  return {
+    found,
+    app_id_hint,
+    index_hint,
+    summary: found ? `ALGOLIA DETECTED in HTML: ${signals.join(", ")}.` : "",
+  };
+}
+
+/**
+ * Attempt to read DIMEDIS finder-base-config from the raw page HTML.
+ * Works when the config is part of the initial SSR payload (most DIMEDIS sites).
+ */
+function extractDimedisFromHtml(
+  html: string,
+): { vis_domain: string; lang: string } | null {
+  const m = html.match(
+    /<script[^>]+id=["']finder-base-config["'][^>]*>([\s\S]*?)<\/script>/i,
+  );
+  if (!m) return null;
+  try {
+    const config = JSON.parse(m[1].trim());
+    if (typeof config.visDomain === "string" && typeof config.lang === "string") {
+      return { vis_domain: config.visDomain, lang: config.lang };
+    }
+  } catch {
+    // malformed JSON — fall through
+  }
+  return null;
+}
+
+/**
+ * Probe the DIMEDIS REST API directly. Catches cases where the finder-base-config
+ * is injected after hydration (dynamic JS) so neither Firecrawl nor Claude see it.
+ * Tries /en then /de. Timeout: 4 s per attempt.
+ */
+async function probeDimedisApi(
+  url: string,
+): Promise<{ vis_domain: string; lang: string } | null> {
+  let origin: string;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return null;
+  }
+  for (const lang of ["en", "de"]) {
+    try {
+      const res = await fetch(
+        `${origin}/vis-api/vis/v2/${lang}/exhibitors?limit=10`,
+        {
+          signal: AbortSignal.timeout(4_000),
+          headers: { Accept: "application/json" },
+        },
+      );
+      if (res.ok) {
+        const data: unknown = await res.json();
+        if (
+          data !== null &&
+          typeof data === "object" &&
+          ("hits" in data || "result" in data || "exhibitors" in data || "total" in data)
+        ) {
+          return { vis_domain: origin, lang };
+        }
+      }
+    } catch {
+      // timeout or network error — try next lang
+    }
+  }
+  return null;
+}
+
+/**
  * Look at the listing URL once and return a CrawlPlan.
  * Uses Firecrawl to fetch HTML+markdown, then Claude (via tool_use) to pick a strategy.
  */
@@ -238,7 +337,86 @@ export async function discoverSiteStrategy(url: string): Promise<DiscoveryResult
   const html: string = (result.html ?? result.data?.html ?? "").slice(0, 30_000);
   const markdown: string = (result.markdown ?? result.data?.markdown ?? "").slice(0, 10_000);
 
-  const userContent = `User-supplied URL:\n${url}\n\n--- HTML (truncated) ---\n${html}\n\n--- Markdown (truncated) ---\n${markdown}\n\nCall submit_crawl_plan with the chosen strategy.`;
+  // ── Pre-Claude deterministic platform checks ────────────────────────────────
+  // Faster and more reliable than HTML analysis for known platforms.
+  // Return immediately without spending a Claude call.
+
+  const parsedUrl = new URL(url);
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  // MapYourShow: reliable subdomain signal
+  if (hostname.endsWith(".mapyourshow.com") && hostname.split(".").length >= 3) {
+    const showCode = hostname.split(".")[0].toUpperCase();
+    const appRoot = `${parsedUrl.origin}/8_0`;
+    const plan = CrawlPlanSchema.parse({
+      strategy: "single_page",
+      base_url: url,
+      hints: { detail_path_prefix: null },
+      engine: "mapyourshow_api",
+      mapyourshow: { show_code: showCode, app_root: appRoot },
+    });
+    return {
+      plan,
+      log: `Engine: mapyourshow_api (URL-Signal — kein LLM-Call nötig)\nShow-Code: ${showCode}`,
+      expectedTotalCount: null,
+      promptPreview: "",
+      responseRaw: {},
+    };
+  }
+
+  // ExpoFP: reliable subdomain signal
+  const expofpSkip = new Set(["www", "app", "developer", "help"]);
+  if (
+    hostname.endsWith(".expofp.com") &&
+    !expofpSkip.has(hostname.split(".")[0])
+  ) {
+    const eventId = hostname.split(".")[0];
+    const plan = CrawlPlanSchema.parse({
+      strategy: "single_page",
+      base_url: url,
+      hints: { detail_path_prefix: null },
+      engine: "expofp_api",
+      expofp: { event_id: eventId },
+    });
+    return {
+      plan,
+      log: `Engine: expofp_api (URL-Signal — kein LLM-Call nötig)\nEvent-ID: ${eventId}`,
+      expectedTotalCount: null,
+      promptPreview: "",
+      responseRaw: {},
+    };
+  }
+
+  // Algolia: scan HTML for strong InstantSearch signals.
+  // We can't bypass Claude here (credentials only appear in live network traffic),
+  // but we inject the findings into the user message so Claude is forced to
+  // pick algolia_api even if the HTML snapshot looks sparse.
+  const algoliaSignals = detectAlgoliaSignals(html);
+
+  // DIMEDIS: finder-base-config script block in the initial HTML
+  const dimedisFromHtml = extractDimedisFromHtml(html);
+  if (dimedisFromHtml) {
+    const plan = CrawlPlanSchema.parse({
+      strategy: "single_page",
+      base_url: url,
+      hints: { detail_path_prefix: null },
+      engine: "dimedis_api",
+      dimedis: dimedisFromHtml,
+    });
+    return {
+      plan,
+      log: `Engine: dimedis_api (HTML-Signal — kein LLM-Call nötig)\nDomain: ${dimedisFromHtml.vis_domain}, Lang: ${dimedisFromHtml.lang}`,
+      expectedTotalCount: null,
+      promptPreview: "",
+      responseRaw: {},
+    };
+  }
+
+  const algoliaNote = algoliaSignals.found
+    ? `\n\n⚠ PRE-SCAN RESULT: ${algoliaSignals.summary} You MUST pick engine="algolia_api".${algoliaSignals.app_id_hint ? ` Set algolia.app_id_hint="${algoliaSignals.app_id_hint}".` : ""}${algoliaSignals.index_hint ? ` Set algolia.index_hint="${algoliaSignals.index_hint}".` : ""}`
+    : "";
+
+  const userContent = `User-supplied URL:\n${url}\n\n--- HTML (truncated) ---\n${html}\n\n--- Markdown (truncated) ---\n${markdown}${algoliaNote}\n\nCall submit_crawl_plan with the chosen strategy.`;
 
   const response = await client().messages.create({
     model: MODEL,
@@ -280,6 +458,13 @@ export async function discoverSiteStrategy(url: string): Promise<DiscoveryResult
   const planInput = { ...rawInput };
   delete planInput.expected_total_count;
 
+  // Sanity-fix: Claude occasionally produces "" or "All"/"0-9" (>2 chars) in the letters array.
+  if (Array.isArray(planInput.letters)) {
+    planInput.letters = (planInput.letters as unknown[]).filter(
+      (l) => typeof l === "string" && l.length >= 1 && l.length <= 2,
+    );
+  }
+
   let parsed: CrawlPlan;
   try {
     parsed = CrawlPlanSchema.parse(planInput);
@@ -291,6 +476,32 @@ export async function discoverSiteStrategy(url: string): Promise<DiscoveryResult
 
   // Sanity-fix: force base_url to the user-supplied url so we never lose it.
   parsed.base_url = url;
+
+  // ── Post-Claude DIMEDIS API probe ──────────────────────────────────────────
+  // If Claude picked a browser-based engine, probe the DIMEDIS REST endpoint.
+  // Some sites load finder-base-config dynamically (after JS hydration), so
+  // Firecrawl's HTML snapshot misses it even with waitFor:3500. A direct API
+  // call is unambiguous and costs only 1 fetch with a 4 s timeout.
+  const chosenEngine = (parsed as { engine?: string }).engine ?? "firecrawl";
+  if (chosenEngine === "browserbase" || chosenEngine === "firecrawl" || chosenEngine === "algolia_api") {
+    const dimedisProbe = await probeDimedisApi(url);
+    if (dimedisProbe) {
+      const overridePlan = CrawlPlanSchema.parse({
+        strategy: "single_page",
+        base_url: url,
+        hints: parsed.hints,
+        engine: "dimedis_api",
+        dimedis: dimedisProbe,
+      });
+      return {
+        plan: overridePlan,
+        log: `Engine: dimedis_api (API-Probe — Claude hatte "${chosenEngine}" gewählt)\nDomain: ${dimedisProbe.vis_domain}, Lang: ${dimedisProbe.lang}`,
+        expectedTotalCount,
+        promptPreview: userContent.slice(0, 4000),
+        responseRaw: rawInput,
+      };
+    }
+  }
 
   const log = `Strategie: ${parsed.strategy}\n${describePlan(parsed)}${expectedTotalCount ? `\nErwartet: ${expectedTotalCount} Aussteller` : ""}`;
   return {

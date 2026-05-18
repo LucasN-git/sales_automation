@@ -107,6 +107,86 @@ export function mergeBatch(
 }
 
 /**
+ * Parse a markdown table into exhibitor entries. Handles column headers in any
+ * language (Entreprise/Company/Firma/Name for name, Site Web/Website/URL for
+ * website, Stand/Booth/Halle for booth). Returns empty array if no recognisable
+ * table is found. Deterministic, no LLM, no Firecrawl credits beyond the scrape.
+ */
+export function parseMarkdownExhibitorTable(markdown: string): ExhibitorListing[] {
+  const results: ExhibitorListing[] = [];
+  const seen = new Set<string>();
+  const lines = markdown.split("\n");
+
+  let nameCol = -1;
+  let websiteCol = -1;
+  let boothCol = -1;
+  let inTable = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) {
+      if (inTable) break;
+      continue;
+    }
+
+    const cells = trimmed
+      .split("|")
+      .map((c) => c.trim())
+      .slice(1, -1); // drop empty first/last after split on leading/trailing |
+
+    if (cells.length === 0) continue;
+
+    // Separator row (| --- | --- |) — skip
+    if (cells.every((c) => /^[-: ]+$/.test(c))) continue;
+
+    if (!inTable) {
+      // Try to identify header row by recognisable column keywords
+      const lower = cells.map((c) => c.toLowerCase().replace(/\*/g, "").trim());
+      const nameIdx = lower.findIndex((c) =>
+        /entreprise|company|companies|firma|aussteller|exhibitor|name/.test(c),
+      );
+      const webIdx = lower.findIndex((c) =>
+        /site web|website|web site|url|homepage/.test(c),
+      );
+      const boothIdx = lower.findIndex((c) => /booth|stand|halle|hall/.test(c));
+
+      if (nameIdx >= 0) {
+        nameCol = nameIdx;
+        websiteCol = webIdx;
+        boothCol = boothIdx;
+        inTable = true;
+      }
+      continue;
+    }
+
+    // Data row
+    const rawName = nameCol < cells.length ? cells[nameCol] : "";
+    const name = rawName.replace(/\*\*/g, "").trim();
+    if (!name || name.length < 2) continue;
+
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    let website: string | null = null;
+    if (websiteCol >= 0 && websiteCol < cells.length) {
+      const cell = cells[websiteCol];
+      const mdLink = cell.match(/\[.*?\]\((https?:\/\/[^)]+)\)/);
+      const plainUrl = cell.match(/https?:\/\/\S+/);
+      website = mdLink?.[1] ?? plainUrl?.[0] ?? null;
+    }
+
+    const boothRaw =
+      boothCol >= 0 && boothCol < cells.length ? cells[boothCol].trim() : null;
+    const booth = boothRaw && boothRaw !== "" ? boothRaw : null;
+
+    results.push({ name, website, booth, profile_url: null });
+  }
+
+  return results;
+}
+
+/**
  * Standard Firecrawl scrape with our exhibitor JSON-Schema. Returns parsed list
  * or empty array on any failure (caller decides how to react).
  *
@@ -119,6 +199,12 @@ export function mergeBatch(
  * matching the prefix. No LLM-extraction, no "sometimes 0 items" drift, 1
  * Firecrawl credit instead of 5. Use this whenever the Discovery phase has
  * identified a stable detail-page URL pattern.
+ *
+ * For static pages without a detailPathPrefix: tries markdown scrape + table
+ * parsing first (deterministic, captures full tables of any size). Falls back
+ * to JSON LLM-extraction only when no markdown table is found — the LLM path
+ * is reliable for card-grid layouts but caps internally around 50-80 rows for
+ * large tables.
  */
 export async function scrapeExhibitorPage(
   url: string,
@@ -148,6 +234,30 @@ export async function scrapeExhibitorPage(
     }
   }
 
+  // --- Primary path: markdown scrape + deterministic table parser ---
+  // Handles static HTML pages with <table> or markdown-table structures.
+  // Captures full lists of any size; costs 1 Firecrawl credit.
+  if (!opts.actions) {
+    try {
+      const mdResult: any = await fc().scrapeUrl(url, {
+        formats: ["markdown"],
+        onlyMainContent: true,
+        waitFor: opts.waitFor ?? 2500,
+        timeout: opts.timeoutMs ?? 30_000,
+      });
+      if (mdResult?.success) {
+        const markdown: string =
+          mdResult.markdown ?? mdResult.data?.markdown ?? "";
+        const tableRows = parseMarkdownExhibitorTable(markdown);
+        if (tableRows.length >= 5) return tableRows;
+      }
+    } catch {
+      // fall through to JSON extraction
+    }
+  }
+
+  // --- Fallback path: Firecrawl JSON LLM-extraction ---
+  // Best for card-grid / list layouts without a table structure.
   try {
     const result: any = await fc().scrapeUrl(url, {
       formats: ["json"],
