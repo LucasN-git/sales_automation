@@ -49,7 +49,7 @@ type ParsedRow = {
   linkedin_url: string | null;
 };
 
-export function parseCSV(text: string): ParsedRow[] {
+function parseCSV(text: string): ParsedRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
 
