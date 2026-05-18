@@ -7,7 +7,7 @@ import { SendIcon } from "@/components/brand/Icons";
 import { apiFetch } from "@/lib/api-fetch";
 import { useReportErrorSafe } from "@/components/ErrorReportProvider";
 
-export function NewDiscoveryForm() {
+export function CompetitorDiscoveryForm({ hasActiveRun }: { hasActiveRun: boolean }) {
   const router = useRouter();
   const reportError = useReportErrorSafe();
   const [prompt, setPrompt] = useState("");
@@ -16,32 +16,30 @@ export function NewDiscoveryForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim()) return;
+    if (hasActiveRun || pending) return;
     setError(null);
 
+    const regionFocus = prompt.trim() || undefined;
+
     startTransition(async () => {
-      const r = await apiFetch<{ runId: string }>("/api/show-discovery", {
+      const r = await apiFetch<{ runId: string }>("/api/competitors/discovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_prompt: prompt.trim() }),
+        body: JSON.stringify({ region_focus: regionFocus }),
         reporter: reportError,
       });
       if (!r.ok) {
-        setError(r.error ?? "Fehler beim Starten der Suche.");
+        setError(r.error ?? "Fehler beim Starten der Analyse.");
         return;
       }
-      const runId = r.data.runId;
-      if (!runId) {
-        setError("Server-Antwort enthielt keine runId.");
-        return;
-      }
-      router.push(`/shows/search/runs/${runId}`);
+      setPrompt("");
+      router.refresh();
     });
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card-surface px-5 py-5">
-      <label className="block text-meta-strong mb-3">Suchfokus</label>
+    <form onSubmit={handleSubmit} className="card-surface px-5 py-5 mb-8">
+      <label className="block text-meta-strong mb-3">Neue Konkurrenzanalyse</label>
       <div className="relative">
         <textarea
           value={prompt}
@@ -49,26 +47,31 @@ export function NewDiscoveryForm() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (prompt.trim() && !pending) handleSubmit(e as unknown as React.FormEvent);
+              if (!hasActiveRun && !pending) handleSubmit(e as unknown as React.FormEvent);
             }
           }}
-          placeholder="z.B. Defense und Aerospace Shows Europa 2026-2027, kein UK. Oder: Industrieautomation und mobile Robotik DACH."
+          placeholder="Fokus optional, z.B. Verteidigung Europa, Maritime DACH. Leer = global alle Sektoren."
           rows={2}
-          disabled={pending}
+          disabled={pending || hasActiveRun}
           className="w-full bg-white border border-[var(--border-color-soft)] rounded-xl py-3 pl-4 pr-14 text-body placeholder:text-[var(--color-near-black)]/35 resize-none focus:outline-none focus:border-[var(--color-near-black)]/50 disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={pending || !prompt.trim()}
-          aria-label="Suche starten"
+          disabled={pending || hasActiveRun}
+          aria-label="Analyse starten"
           className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/50 hover:text-[var(--color-gold)] disabled:opacity-25 disabled:hover:text-[var(--color-near-black)]/50 transition-colors"
         >
           {pending ? <GoldDot size={6} /> : <SendIcon size={18} />}
         </button>
       </div>
       <p className="mt-2 text-meta text-[var(--color-near-black)]/45">
-        ca. $0.25-0.40 pro Lauf , 3-5 Min , Claude Opus 4.7
+        ca. $0.20-0.40 pro Lauf , 2-4 Min , Claude Opus 4.7 + Web-Search
       </p>
+      {hasActiveRun && (
+        <p className="mt-1 text-meta text-[var(--color-near-black)]/55">
+          Analyse laeuft bereits. Warte bis sie abgeschlossen ist.
+        </p>
+      )}
       {error && (
         <p className="mt-1 text-body-sm text-[var(--color-near-black)]/70">{error}</p>
       )}

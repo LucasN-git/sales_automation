@@ -498,7 +498,7 @@ niedrig: border 1px rgba(10,10,10,0.10), text near-black(40%)
 
 ### Design Hard-Rules (nie verletzen)
 
-- **Kein `border-radius`** — `border-radius: 0 !important` ist global gesetzt. Ausnahme: Avatare (50% oder 9999px).
+- **Border-radius nur auf Cards und Inputs** — `card-surface` hat `border-radius: var(--radius-lg)` (8px). Alle anderen Elemente bleiben eckig (kein `rounded-*` auf Buttons, Badges, Tabellen, Listenzeilen). Avatare: 9999px.
 - **Keine Webfonts** — nur Helvetica-Stack, kein `@import`, kein `<link>` zu externen Fonts.
 - **Keine Em-Dashes** (`—`) in sichtbarem Text — Punkt, Komma oder Klammer stattdessen.
 - **Single Gold Accent** — nie zwei goldene Elemente gleichzeitig auf einem Viewport.
@@ -506,6 +506,119 @@ niedrig: border 1px rgba(10,10,10,0.10), text near-black(40%)
 - **Keine Superlative** in UI-Copy — sachlich, präzise, kurze Satze.
 - **Sektor-Bilder:** `filter: grayscale(0.15) contrast(1.02)`.
 - **Keine `border` um Cards** — nur `box-shadow` fur Elevation.
+
+### UI-Muster (etabliert ab V5, SaaS-Konventionen)
+
+Diese Muster sind der Standard fur alle Listen-/Uebersichtsseiten. Abweichungen erfordern explizite Begründung.
+
+**Seiten-Header-Struktur** (konsistent über alle Top-Level-Seiten):
+```jsx
+<header className="mb-10">
+  <h1 className="text-display">Seitenname<span style={{ color: "var(--color-gold)" }}>.</span></h1>
+  <p className="mt-3 text-body text-[var(--color-near-black)]/65 max-w-xl">
+    Kurze sachliche Beschreibung.
+  </p>
+  {/* Optional: Stat-Zeile */}
+  <div className="mt-3 flex items-center gap-4 text-body-sm text-[var(--color-near-black)]/65 flex-wrap">
+    <span className="tabular-nums">N items</span>
+    ...
+  </div>
+  {/* CTA-Buttons direkt unter dem Header, nicht oben rechts */}
+  <div className="mt-6 flex items-center gap-3">...</div>
+</header>
+```
+
+**Card-Grid-Layout** (Messen, Konkurrenten, Unternehmen):
+```
+grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4   ← Shows (3-col)
+grid grid-cols-1 sm:grid-cols-2 gap-4                  ← Competitors (2-col)
+grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4   ← Companies (3-col)
+```
+Kein react-window fur ubersichtsseiten — normales Grid reicht bis ~200 Items.
+
+**Card-Anatomie** (`card-surface group flex flex-col`):
+```
+┌─────────────────────────────────────┐
+│ Icon/Badge  (16px)       ArrowRight │  ← pt-5 px-5, mb-3/4
+│                                     │
+│ display_name   text-subtitle        │  ← font-semibold leading-snug
+│ domain · meta  text-meta            │  ← mt-0.5, opacity 55
+│ one_liner      text-body-sm         │  ← mt-1.5, opacity 65, line-clamp-2
+│ sector tags    text-meta            │  ← mt-2, opacity 40                    │
+├─────────────────────────────────────┤  ← border-t border-[var(--border-color-soft)]
+│ StatusBadge / prio    CTA-Buttons   │  ← pt-3 pb-4 px-5, justify-between
+└─────────────────────────────────────┘
+```
+
+ArrowRight-Icon Hover: `text-[var(--color-near-black)]/30 group-hover:text-[var(--color-near-black)]/70 transition-colors`
+
+**Tab-Filter-Bar** (Standard fur Statusfilter wie in CompetitorsView):
+```jsx
+{STATUS_TABS.map(tab => {
+  const active = filter === tab.key;
+  return (
+    <button
+      className={`px-3 py-2 text-body-sm border transition-colors ${
+        active
+          ? "border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.04] font-semibold"
+          : "border-[var(--border-color-soft)] text-[var(--color-near-black)]/70 hover:border-[var(--color-near-black)]/40"
+      }`}
+    >
+      {tab.label}
+      <span className="ml-2 tabular-nums opacity-60">{counts[tab.key]}</span>
+    </button>
+  );
+})}
+```
+Immer eckige Buttons (kein `rounded-*`). Counts inline mit `opacity-60 tabular-nums`.
+
+**Inline-Search + Sort in einer Zeile** (uber dem Card-Grid):
+```jsx
+<div className="flex flex-wrap items-center gap-3 mb-5">
+  <div className="flex flex-wrap gap-1">{/* Tab-Filter */}</div>
+  <div className="flex-1 min-w-[200px]">
+    <input placeholder="suche..." className="w-full bg-transparent border border-[var(--border-color-soft)] px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]" />
+  </div>
+  <select className="bg-transparent border border-[var(--border-color-soft)] px-3 py-2 text-body-sm focus:outline-none" />
+</div>
+```
+`bg-transparent` statt `bg-white` auf Inputs in der Filter-Bar — sieht weniger "form-artig" aus.
+
+**Empty-State**:
+```jsx
+<div className="py-10 text-body text-[var(--color-near-black)]/55 box-line px-5">
+  keine eintraege in dieser ansicht.
+</div>
+```
+
+**Active-Run-Banner** (immer uber dem Grid, wenn Pipeline aktiv):
+```jsx
+<div className="mb-6 px-5 py-3 box-line border-l-2 border-l-[var(--color-gold)] bg-[var(--color-near-black)]/[0.02] flex items-center justify-between gap-3">
+  <GoldDot size={6} />
+  <span className="text-body-sm">prozess laeuft...</span>
+</div>
+```
+
+**Section-Eyebrow** (uber Gruppen innerhalb einer Seite):
+```jsx
+<h2 className="text-meta-strong mb-4">section titel</h2>
+```
+
+**Priority-Badges** (uniforme Regel, alle Listen):
+```
+hoch:    border-[var(--color-near-black)]     text-[var(--color-near-black)]   font-bold
+mittel:  border-[var(--color-near-black)]/60  text-[var(--color-near-black)]/80
+niedrig: border-[var(--color-hairline-light)] text-[var(--color-near-black)]/40
+```
+Alle: `text-meta-strong px-2 py-0.5 border` (kein border-radius).
+
+**Confidence-Score im Kartenkontext**:
+```jsx
+<span className="tabular-nums text-title">
+  {score}<span style={{ color: "var(--color-gold)" }}>.</span>
+</span>
+```
+Gold-Punkt am Wert = einziger Gold-Akzent der Karte. Kein zweites gold-Element gleichzeitig sichtbar.
 
 ---
 

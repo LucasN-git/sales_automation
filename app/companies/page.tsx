@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ISP_CATALOG } from "@/lib/isp-catalog";
 import { CompaniesList, type CompanyRow } from "@/components/CompaniesList";
@@ -72,23 +71,16 @@ export default async function CompaniesPage({
 
   return (
     <>
-      <div className="mb-6 text-meta">
-        <Link href="/" className="hover:text-[var(--color-near-black)] transition-colors">
-          ← Sales Intelligence
-        </Link>
-      </div>
-
       <header className="mb-10">
         <h1 className="text-display">
           Unternehmen<span style={{ color: "var(--color-gold)" }}>.</span>
         </h1>
         <p className="mt-3 text-body text-[var(--color-near-black)]/65 max-w-xl">
-          Deduplizierte Liste ueber alle Messen hinweg. Eine Firma, die auf
-          mehreren Messen ausstellt, taucht hier nur einmal auf.
+          Deduplizierte Firmen-Liste uber alle Messen. Eine Firma taucht hier nur einmal auf.
         </p>
         <div className="mt-3 flex items-center gap-4 text-body-sm text-[var(--color-near-black)]/65 flex-wrap">
           <span className="tabular-nums">{totalCount} firmen</span>
-          <span className="tabular-nums">{hotCount} hot</span>
+          <span className="tabular-nums">{hotCount} hoch-prio</span>
           <span className="tabular-nums">{multiShowCount} auf mehreren messen</span>
         </div>
         <div className="mt-6">

@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const PRIO_COLORS: Record<string, string> = {
+const PRIO_BADGE: Record<string, string> = {
   hoch: "border-[var(--color-near-black)] text-[var(--color-near-black)] font-bold",
   mittel: "border-[var(--color-near-black)]/60 text-[var(--color-near-black)]/80",
   niedrig: "border-[var(--color-hairline-light)] text-[var(--color-near-black)]/40",
@@ -83,22 +83,46 @@ export default async function CompanyDetailPage({
     }))
     .sort((a, b) => (a.show?.name ?? "").localeCompare(b.show?.name ?? ""));
 
+  const bestConfidence = participations.reduce<number | null>((best, p) => {
+    const v = p.short?.match_confidence ?? null;
+    if (v === null) return best;
+    return best === null || v > best ? v : best;
+  }, null);
+
+  const scoreColor =
+    bestConfidence === null
+      ? null
+      : bestConfidence >= 8
+        ? "var(--color-success)"
+        : bestConfidence >= 5
+          ? "var(--color-gold)"
+          : "rgba(10,10,10,0.35)";
+
   return (
     <>
       <div className="mb-6 text-meta">
-        <Link
-          href="/companies"
-          className="hover:text-[var(--color-near-black)] transition-colors"
-        >
+        <Link href="/companies" className="hover:text-[var(--color-near-black)] transition-colors">
           ← Unternehmen
         </Link>
       </div>
 
       <header className="mb-10">
-        <h1 className="text-display">
-          {company.display_name}
-          <span style={{ color: "var(--color-gold)" }}>.</span>
-        </h1>
+        <div className="flex items-start justify-between gap-6">
+          <h1 className="text-display">
+            {company.display_name}
+            <span style={{ color: "var(--color-gold)" }}>.</span>
+          </h1>
+          {bestConfidence !== null && (
+            <span
+              className="text-title tabular-nums shrink-0 mt-1"
+              style={{ color: scoreColor ?? undefined }}
+            >
+              {bestConfidence}
+              <span style={{ color: "var(--color-gold)" }}>.</span>
+            </span>
+          )}
+        </div>
+
         <div className="mt-3 flex items-center gap-4 text-body-sm text-[var(--color-near-black)]/65 flex-wrap">
           {company.domain && (
             <a
@@ -112,6 +136,7 @@ export default async function CompanyDetailPage({
           )}
           <span className="tabular-nums">{participations.length} messe-teilnahmen</span>
         </div>
+
         {participations.length > 0 && (
           <div className="mt-4 flex items-center gap-2 flex-wrap">
             <span className="text-meta mr-1">quell-messen</span>
@@ -133,31 +158,31 @@ export default async function CompanyDetailPage({
       </header>
 
       {participations.length === 0 ? (
-        <div className="py-10 text-body text-[var(--color-near-black)]/50">
+        <div className="py-10 text-body text-[var(--color-near-black)]/50 box-line px-5">
           Diese Firma ist noch keiner Messe zugeordnet.
         </div>
       ) : (
         <>
           <h2 className="text-meta-strong mb-4">cross-show-vergleich</h2>
-          <div className="overflow-x-auto">
+          <div className="card-surface overflow-x-auto">
             <table className="w-full border-collapse text-body-sm">
               <thead className="text-meta-strong">
                 <tr className="border-b border-[var(--border-color-soft)]">
-                  <th className="text-left px-3 py-3 font-normal">messe</th>
-                  <th className="text-left px-3 py-3 font-normal">stand</th>
-                  <th className="text-left px-3 py-3 font-normal">prio</th>
-                  <th className="text-right px-3 py-3 font-normal">match</th>
-                  <th className="text-left px-3 py-3 font-normal">sektoren</th>
-                  <th className="text-left px-3 py-3 font-normal">one-liner</th>
+                  <th className="text-left px-4 py-3 font-normal">messe</th>
+                  <th className="text-left px-4 py-3 font-normal">stand</th>
+                  <th className="text-left px-4 py-3 font-normal">prio</th>
+                  <th className="text-right px-4 py-3 font-normal">match</th>
+                  <th className="text-left px-4 py-3 font-normal">sektoren</th>
+                  <th className="text-left px-4 py-3 font-normal">one-liner</th>
                 </tr>
               </thead>
               <tbody>
                 {participations.map((p) => (
                   <tr
                     key={p.id}
-                    className="border-b border-[var(--border-color-soft)] align-top"
+                    className="border-b border-[var(--border-color-soft)] last:border-0 align-top hover:bg-[var(--color-near-black)]/[0.01] transition-colors"
                   >
-                    <td className="px-3 py-3">
+                    <td className="px-4 py-3">
                       {p.show ? (
                         <Link
                           href={`/shows/${p.show.id}/exhibitors/${p.id}`}
@@ -170,12 +195,14 @@ export default async function CompanyDetailPage({
                         "?"
                       )}
                     </td>
-                    <td className="px-3 py-3 tabular-nums">{p.booth ?? "—"}</td>
-                    <td className="px-3 py-3">
+                    <td className="px-4 py-3 tabular-nums text-[var(--color-near-black)]/55">
+                      {p.booth ?? <span className="text-meta">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
                       {p.short?.priority_label ? (
                         <span
                           className={`text-meta-strong px-2 py-0.5 border ${
-                            PRIO_COLORS[p.short.priority_label] ?? ""
+                            PRIO_BADGE[p.short.priority_label] ?? ""
                           }`}
                         >
                           {p.short.priority_label}
@@ -184,10 +211,14 @@ export default async function CompanyDetailPage({
                         <span className="text-meta">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums">
-                      {p.short?.match_confidence ?? "—"}
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {p.short?.match_confidence !== null && p.short?.match_confidence !== undefined ? (
+                        <span className="text-body font-semibold">{p.short.match_confidence}</span>
+                      ) : (
+                        <span className="text-meta">—</span>
+                      )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
                         {(p.short?.isp_sector_match ?? []).map((s) => (
                           <span
@@ -199,12 +230,10 @@ export default async function CompanyDetailPage({
                         ))}
                       </div>
                     </td>
-                    <td className="px-3 py-3 max-w-xl">
+                    <td className="px-4 py-3 max-w-xs">
                       {p.short?.one_liner ?? (
                         <span className="text-meta">
-                          {p.short_status === "running"
-                            ? "wird analysiert"
-                            : "noch keine einschaetzung"}
+                          {p.short_status === "running" ? "wird analysiert" : "—"}
                         </span>
                       )}
                     </td>
@@ -236,18 +265,18 @@ function DeepDiveSection({
   return (
     <section className="mt-12">
       <h2 className="text-meta-strong mb-4">deep dives</h2>
-      <div className="space-y-8">
+      <div className="space-y-4">
         {withDeep.map((p) => (
-          <article key={p.id} className="box-line p-5">
+          <article key={p.id} className="card-surface p-5">
             <header className="mb-4 flex items-baseline justify-between gap-4">
-              <div className="text-subtitle">
+              <div className="text-subtitle font-semibold">
                 {p.show?.name}
                 {p.show?.year ? ` ${p.show.year}` : ""}
               </div>
               {p.show && (
                 <Link
                   href={`/shows/${p.show.id}/exhibitors/${p.id}`}
-                  className="text-meta hover:text-[var(--color-gold)] transition-colors"
+                  className="text-meta hover:text-[var(--color-gold)] transition-colors shrink-0"
                 >
                   detail ↗
                 </Link>

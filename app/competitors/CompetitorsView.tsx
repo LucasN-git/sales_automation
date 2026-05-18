@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { GoldDot } from "@/components/brand/GoldDot";
 import { ArrowRight } from "@/components/brand/Icons";
+import { apiFetch } from "@/lib/api-fetch";
+import { useReportErrorSafe } from "@/components/ErrorReportProvider";
 
 export type CompetitorRow = {
   id: string;
@@ -63,7 +65,9 @@ export function CompetitorsView({
   const [q, setQ] = useState("");
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [bulkShortPending, setBulkShortPending] = useState(false);
   const [, startTransition] = useTransition();
+  const reportError = useReportErrorSafe();
 
   const hasActiveRun = runs.some(
     (r) => r.status === "pending" || r.status === "running",
@@ -92,6 +96,20 @@ export function CompetitorsView({
       return true;
     });
   }, [competitors, filter, sectorFilter, q]);
+
+  async function bulkShort() {
+    if (bulkShortPending) return;
+    setBulkShortPending(true);
+    try {
+      await apiFetch("/api/competitors/bulk-short", {
+        method: "POST",
+        reporter: reportError,
+      });
+      startTransition(() => router.refresh());
+    } finally {
+      setBulkShortPending(false);
+    }
+  }
 
   async function curate(id: string, status: CompetitorRow["status"]) {
     setPendingId(id);
@@ -125,7 +143,7 @@ export function CompetitorsView({
     <div>
       {activeRun && <ActiveRunBanner run={activeRun} />}
 
-      <div className="flex flex-wrap items-center gap-3 mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex flex-wrap gap-1">
           {STATUS_TABS.map((tab) => {
             const active = filter === tab.key;
@@ -147,15 +165,13 @@ export function CompetitorsView({
             );
           })}
         </div>
-        <div className="flex-1 min-w-[200px]">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="suche name, domain, one-liner"
-            className="w-full bg-transparent border border-[var(--border-color-soft)] px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+            className="flex-1 min-w-[160px] bg-transparent border border-[var(--border-color-soft)] px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
           />
-        </div>
-        <div>
           <select
             value={sectorFilter ?? ""}
             onChange={(e) => setSectorFilter(e.target.value || null)}
@@ -168,6 +184,19 @@ export function CompetitorsView({
               </option>
             ))}
           </select>
+          {filter === "suggested" && counts.suggested > 0 && (
+            <button
+              onClick={bulkShort}
+              disabled={bulkShortPending}
+              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-2 border border-[var(--color-near-black)]/80 text-[var(--color-near-black)] hover:border-[var(--color-gold)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              {bulkShortPending ? (
+                <><GoldDot size={5} /><span>laeuft...</span></>
+              ) : (
+                `alle analysieren (${counts.suggested})`
+              )}
+            </button>
+          )}
         </div>
       </div>
 

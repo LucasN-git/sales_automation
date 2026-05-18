@@ -24,6 +24,7 @@ export function HelpRequestButton({
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<"idle" | "sent" | "failed">("idle");
   const [open, setOpen] = useState(false);
+  const [dropdownAlign, setDropdownAlign] = useState<"left" | "right">("right");
   const [note, setNote] = useState("");
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -76,6 +77,10 @@ export function HelpRequestButton({
 
   useEffect(() => {
     if (!open) return;
+    if (wrapperRef.current) {
+      const rect = wrapperRef.current.getBoundingClientRect();
+      setDropdownAlign(rect.left + 360 <= window.innerWidth ? "left" : "right");
+    }
     textareaRef.current?.focus();
 
     function onPointer(e: MouseEvent) {
@@ -147,7 +152,7 @@ export function HelpRequestButton({
 
       {open && (
         <div
-          className="absolute right-0 z-50 mt-2 w-[360px] bg-[var(--color-cream)] shadow-[0_8px_24px_rgba(10,10,10,0.16),0_0_0_1px_rgba(10,10,10,0.12)]"
+          className={`absolute z-50 mt-2 w-[360px] bg-[var(--color-cream)] shadow-[0_8px_24px_rgba(10,10,10,0.16),0_0_0_1px_rgba(10,10,10,0.12)] ${dropdownAlign === "left" ? "left-0" : "right-0"}`}
           role="dialog"
           aria-label="Hilfe anfordern"
         >

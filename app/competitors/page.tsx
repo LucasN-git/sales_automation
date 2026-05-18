@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ISP_CATALOG } from "@/lib/isp-catalog";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { CompetitorsView, type CompetitorRow, type DiscoveryRun } from "./CompetitorsView";
+import { CompetitorDiscoveryForm } from "./CompetitorDiscoveryForm";
 import { HelpRequestButton } from "@/components/HelpRequestButton";
 
 export const dynamic = "force-dynamic";
@@ -134,6 +135,8 @@ export default async function CompetitorsPage() {
           />
         </div>
       </header>
+
+      <CompetitorDiscoveryForm hasActiveRun={anyActiveRun} />
 
       <CompetitorsView
         competitors={competitors}

@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GoldDot } from "@/components/brand/GoldDot";
+import { ChevronLeft } from "@/components/brand/Icons";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { HelpRequestButton } from "@/components/HelpRequestButton";
 import { CompetitorRescanShortButton } from "./CompetitorRescanShortButton";
@@ -29,10 +31,11 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "Abgelehnt",
 };
 
-type DetailView = "intel" | "verlauf" | "kunden" | "einstellungen";
-const VIEWS: DetailView[] = ["intel", "verlauf", "kunden", "einstellungen"];
+type DetailView = "informationen" | "verlauf" | "kunden" | "einstellungen";
+const VIEWS: DetailView[] = ["informationen", "verlauf", "kunden", "einstellungen"];
 function parseView(v: string | undefined): DetailView {
-  return v && (VIEWS as string[]).includes(v) ? (v as DetailView) : "intel";
+  if (v === "intel") return "informationen";
+  return v && (VIEWS as string[]).includes(v) ? (v as DetailView) : "informationen";
 }
 
 export default async function CompetitorDetailPage({
@@ -73,23 +76,34 @@ export default async function CompetitorDetailPage({
   const latestVersion = versions?.[0] ?? null;
   const threatLevel = latestVersion?.threat_level ?? null;
   const statusLabel = STATUS_LABELS[competitor.status] ?? competitor.status;
-  const shortRunning = competitor.short_status === "running" || competitor.short_status === "pending";
+  const shortRunning = competitor.short_status === "running";
+  const shortPending = competitor.short_status === "pending";
+  const shortActive = shortRunning || shortPending;
+  const hasAnalysis = !!latestVersion;
 
   return (
     <>
-      {shortRunning && <AutoRefresh intervalMs={4000} />}
+      {shortActive && <AutoRefresh intervalMs={4000} />}
 
-      <header className="mb-10">
+      {/* Back navigation */}
+      <div className="mb-6">
+        <Link
+          href="/competitors"
+          className="inline-flex items-center gap-1.5 text-body-sm text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
+        >
+          <ChevronLeft size={14} />
+          Konkurrenten
+        </Link>
+      </div>
+
+      <header className="mb-8">
         <h1 className="text-display">
           {competitor.display_name}
           <span style={{ color: "var(--color-gold)" }}>.</span>
         </h1>
 
         <div className="mt-3 flex items-center gap-4 text-body-sm text-[var(--color-near-black)]/65 flex-wrap">
-          <span className="inline-flex items-center gap-2">
-            {shortRunning && <GoldDot size={6} />}
-            <span>{statusLabel}</span>
-          </span>
+          <span>{statusLabel}</span>
           {threatLevel && (
             <span className={THREAT_COLORS[threatLevel] ?? ""}>
               Bedrohung: {THREAT_LABELS[threatLevel] ?? threatLevel}
@@ -108,15 +122,22 @@ export default async function CompetitorDetailPage({
               {competitor.domain ?? competitor.website}
             </a>
           )}
-          <span className="text-[var(--color-near-black)]/45 tabular-nums">
-            short {competitor.short_status}
-          </span>
+          {shortRunning && (
+            <span className="inline-flex items-center gap-1.5">
+              <GoldDot size={6} />
+              <span>Analyse laeuft</span>
+            </span>
+          )}
+          {shortPending && !shortRunning && (
+            <span className="text-[var(--color-near-black)]/45">Analyse steht an</span>
+          )}
         </div>
 
         <div className="mt-5 flex items-center gap-3 flex-wrap">
           <CompetitorRescanShortButton
             competitorId={competitor.id}
-            disabled={shortRunning}
+            shortStatus={competitor.short_status}
+            hasAnalysis={hasAnalysis}
           />
           <HelpRequestButton
             source="competitors"
@@ -126,7 +147,34 @@ export default async function CompetitorDetailPage({
         </div>
       </header>
 
-      {view === "intel" && <IntelView latestVersion={latestVersion} />}
+      {/* Tab navigation */}
+      <nav className="flex gap-0 mb-8 border-b border-[var(--border-color-soft)]">
+        {VIEWS.map((v) => {
+          const active = view === v;
+          const label = v === "informationen" ? "Informationen" : v === "verlauf" ? "Verlauf" : v === "kunden" ? "Kunden" : "Einstellungen";
+          return (
+            <Link
+              key={v}
+              href={`?view=${v}`}
+              className={`px-4 py-2.5 text-ui relative transition-colors ${
+                active
+                  ? "text-[var(--color-near-black)] font-semibold"
+                  : "text-[var(--color-near-black)]/50 hover:text-[var(--color-near-black)]"
+              }`}
+            >
+              {label}
+              {active && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-px"
+                  style={{ background: "var(--color-near-black)" }}
+                />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {view === "informationen" && <InformationenView latestVersion={latestVersion} shortStatus={competitor.short_status} competitorId={competitor.id} hasAnalysis={hasAnalysis} />}
       {view === "verlauf" && <VerlaufView versions={versions ?? []} />}
       {view === "kunden" && <KundenView customerLinks={customerLinks ?? []} />}
       {view === "einstellungen" && (
@@ -140,12 +188,17 @@ export default async function CompetitorDetailPage({
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function IntelView({ latestVersion }: { latestVersion: any }) {
+function InformationenView({ latestVersion, shortStatus, competitorId, hasAnalysis }: { latestVersion: any; shortStatus: string | null; competitorId: string; hasAnalysis: boolean }) {
   if (!latestVersion) {
     return (
       <section>
-        <div className="card-surface p-6 text-body text-[var(--color-near-black)]/50">
-          Noch keine Intel verfuegbar. Starte eine Short-Analyse oder frag den Chat rechts.
+        <div className="card-surface p-6">
+          <p className="text-body text-[var(--color-near-black)]/50 mb-4">
+            Noch keine Informationen vorhanden.
+            {shortStatus === "running" || shortStatus === "pending"
+              ? " Analyse laeuft, Seite neu laden wenn abgeschlossen."
+              : " Starte eine Analyse mit dem Button oben."}
+          </p>
         </div>
       </section>
     );
