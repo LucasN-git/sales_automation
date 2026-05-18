@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   if (thread) {
     const greeting = hasUrl
       ? `Neue Messe erkannt: **${body.name}**\nQuelle: ${body.source_url}\n\nIch bin bereit. Tippe **"starte"** oder **"ja"** um Discovery und Listing zu beginnen, oder stelle mir Fragen zum Ablauf.`
-      : `Neue Messe angelegt: **${body.name}**\n\nIch suche jetzt automatisch die Aussteller-URL per Web-Search. Das dauert ungefähr 30 Sekunden. Sobald ich fertig bin, siehst du im Show-Header einen Banner mit der gefundenen URL zur Bestätigung.`;
+      : `Neue Messe angelegt: **${body.name}**\n\nKeine Aussteller-URL hinterlegt. Du hast zwei Möglichkeiten:\n- **CSV hochladen** (Paperclip-Button im Chat) mit Spalten name, website, booth\n- **URL-Suche starten** — tippe "starte url-suche" und ich suche automatisch die Listing-Seite\n\nDanach kannst du mit "starte listing" die Aussteller importieren.`;
 
     await supabase.from("chat_messages").insert({
       thread_id: thread.id,
@@ -67,18 +67,6 @@ export async function POST(request: Request) {
       user_id: user.id,
       role: "assistant",
       content: greeting,
-    });
-  }
-
-  if (!hasUrl) {
-    await inngest.send({
-      name: "trade-show.url-search.requested",
-      data: {
-        tradeShowId: data.id,
-        userId: user.id,
-        showName: body.name,
-        year: body.year ?? null,
-      },
     });
   }
 

@@ -69,7 +69,7 @@ export function NewShowForm() {
           className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         />
         <p className="text-meta mt-1.5 text-[var(--color-near-black)]/55">
-          Ich suche danach automatisch die Aussteller-URL per Web-Search.
+          Danach kannst du eine CSV hochladen oder die URL-Suche manuell starten.
         </p>
       </div>
       <div className="md:col-span-2">
