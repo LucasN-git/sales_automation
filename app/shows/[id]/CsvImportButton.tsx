@@ -10,7 +10,7 @@ type State =
   | { kind: "idle" }
   | { kind: "preview"; rows: PreviewRow[]; total: number; file: File }
   | { kind: "importing" }
-  | { kind: "done"; inserted: number; skipped: number }
+  | { kind: "done"; inserted: number; skipped: number; dbError?: string }
   | { kind: "error"; message: string };
 
 function detectSep(line: string): string {
@@ -122,7 +122,7 @@ export function CsvImportButton({ showId }: { showId: string }) {
         setState({ kind: "error", message: json.error ?? "Import fehlgeschlagen." });
         return;
       }
-      setState({ kind: "done", inserted: json.inserted, skipped: json.skipped });
+      setState({ kind: "done", inserted: json.inserted, skipped: json.skipped, dbError: json.error });
       startTransition(() => router.refresh());
     } catch (err) {
       setState({ kind: "error", message: (err as Error).message });
@@ -149,7 +149,7 @@ export function CsvImportButton({ showId }: { showId: string }) {
 
       <button
         onClick={() => inputRef.current?.click()}
-        className="text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-near-black)] hover:border-[var(--border-color)] transition-colors"
+        className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
       >
         csv import
       </button>
@@ -208,13 +208,13 @@ export function CsvImportButton({ showId }: { showId: string }) {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={handleConfirm}
-                      className="px-4 py-2 text-ui border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:border-[var(--color-gold)] transition-colors"
+                      className="px-4 py-2 text-ui rounded-md border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:border-[var(--color-gold)] transition-colors"
                     >
                       {state.total} aussteller importieren
                     </button>
                     <button
                       onClick={reset}
-                      className="px-4 py-2 text-ui border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
+                      className="px-4 py-2 text-ui rounded-md border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
                     >
                       abbrechen
                     </button>
@@ -248,12 +248,18 @@ export function CsvImportButton({ showId }: { showId: string }) {
                     )}
                     <span style={{ color: "var(--color-gold)" }}>.</span>
                   </p>
-                  <p className="text-meta text-[var(--color-near-black)]/55 mb-5">
-                    url-search und short-overview können jetzt gestartet werden.
-                  </p>
+                  {state.dbError ? (
+                    <p className="text-meta text-[var(--color-error)] mb-5">
+                      db-fehler: {state.dbError}
+                    </p>
+                  ) : (
+                    <p className="text-meta text-[var(--color-near-black)]/55 mb-5">
+                      url-search und short-overview können jetzt gestartet werden.
+                    </p>
+                  )}
                   <button
                     onClick={reset}
-                    className="px-4 py-2 text-ui border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
+                    className="px-4 py-2 text-ui rounded-md border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
                   >
                     schließen
                   </button>
@@ -265,7 +271,7 @@ export function CsvImportButton({ showId }: { showId: string }) {
                   <p className="text-body text-[var(--color-error)] mb-4">{state.message}</p>
                   <button
                     onClick={reset}
-                    className="px-4 py-2 text-ui border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
+                    className="px-4 py-2 text-ui rounded-md border border-[var(--border-color-soft)] text-[var(--color-near-black)]/55 hover:text-[var(--color-near-black)] transition-colors"
                   >
                     schließen
                   </button>

@@ -109,7 +109,7 @@ export function HelpRequestButton({
 
   const baseClass =
     className ??
-    "inline-flex items-center gap-2 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/65 hover:text-[var(--color-near-black)] hover:border-[var(--color-near-black)]/40 transition-colors disabled:cursor-not-allowed";
+    "inline-flex items-center gap-2 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/65 hover:text-[var(--color-near-black)] hover:border-[var(--color-near-black)]/40 transition-colors disabled:cursor-not-allowed";
 
   return (
     <div ref={wrapperRef} className="relative inline-block">

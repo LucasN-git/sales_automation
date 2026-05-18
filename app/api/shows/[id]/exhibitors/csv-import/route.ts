@@ -125,6 +125,7 @@ export async function POST(
 
   let inserted = 0;
   let skipped = 0;
+  let firstError: string | null = null;
   const CHUNK = 100;
 
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -139,15 +140,16 @@ export async function POST(
 
     const { data, error } = await supabase
       .from("exhibitors")
-      .insert(chunk)
+      .upsert(chunk, { onConflict: "trade_show_id,company_name", ignoreDuplicates: true })
       .select("id");
 
     if (error) {
+      if (!firstError) firstError = error.message;
       skipped += chunk.length;
     } else {
       inserted += data?.length ?? 0;
     }
   }
 
-  return NextResponse.json({ inserted, skipped });
+  return NextResponse.json({ inserted, skipped, error: firstError ?? undefined });
 }
