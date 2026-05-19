@@ -1826,7 +1826,7 @@ function ChatInput({
           </button>
         </div>
       )}
-      <div className="flex items-end gap-1.5 bg-white border border-[var(--border-color-soft)] rounded-xl px-2.5 py-2 focus-within:border-[var(--color-near-black)]/50 transition-colors">
+      <div className="flex items-end gap-1.5 bg-white border border-[var(--border-color-soft)] rounded-xl px-2.5 py-2.5 focus-within:border-[var(--color-near-black)]/50 transition-colors">
         {showCsvAttach && (
           <>
             <input
@@ -1859,7 +1859,8 @@ function ChatInput({
           }}
           placeholder={sending ? "neue frage stellen oder antwort stoppen…" : "frage stellen…"}
           rows={1}
-          className="flex-1 bg-transparent resize-none text-body focus:outline-none py-1 min-h-[24px] max-h-32"
+          className="flex-1 bg-transparent resize-none text-body py-1 min-h-[24px] max-h-32"
+          style={{ outline: "none" }}
         />
         <button
           onClick={buttonMode === "stop" ? onStop : onSend}
