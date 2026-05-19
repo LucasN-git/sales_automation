@@ -22,7 +22,7 @@ export const getShowExhibitorStatus = cache(
     const supabase = await createClient();
     const { data } = await supabase
       .from("exhibitors")
-      .select("id, company_name, short_status, deep_status, current_step, pre_filter_status")
+      .select("id, company_name, short_status, deep_status, current_step")
       .eq("trade_show_id", showId);
     return (data ?? []) as ExhibitorStatusRow[];
   },

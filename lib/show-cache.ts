@@ -93,7 +93,7 @@ export function getCachedExhibitorList(showId: string): Promise<CachedExhibitorR
       const { data } = await supabase
         .from("exhibitors")
         .select(
-          "id, company_name, website, booth, short_status, deep_status, current_step, pre_filter_status, pre_filter_reason, exhibitor_short(one_liner, priority_label, match_confidence, isp_sector_match, user_group, battery_need)",
+          "id, company_name, website, booth, short_status, deep_status, current_step, exhibitor_short(one_liner, priority_label, match_confidence, isp_sector_match, user_group, battery_need)",
         )
         .eq("trade_show_id", showId)
         .order("company_name", { ascending: true });
@@ -125,14 +125,14 @@ export function getCachedExhibitorIntel(
         supabase
           .from("exhibitors")
           .select(
-            "id, company_name, website, booth, short_status, deep_status, current_step, trade_show_id, profile_url, profile_data, profile_enrich_status, borrowed_short_from_exhibitor_id, pre_filter_status, pre_filter_reason",
+            "id, company_name, website, booth, short_status, deep_status, current_step, trade_show_id, profile_url, profile_data, profile_enrich_status",
           )
           .eq("id", exId)
           .single(),
         supabase
           .from("exhibitor_short")
           .select(
-            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, updated_at, borrowed_from_show_name",
+            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, updated_at",
           )
           .eq("exhibitor_id", exId)
           .maybeSingle(),
