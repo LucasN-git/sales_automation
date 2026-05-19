@@ -11,3 +11,6 @@ next-env.d.ts
 .vercel
 .turbo
 .inngest
+.playwright-mcp/
+playwright-report/
+test-results/
