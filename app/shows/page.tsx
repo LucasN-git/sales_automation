@@ -114,7 +114,7 @@ export default async function ShowsListPage() {
         <NewShowForm />
         <Link
           href="/shows/search"
-          className="inline-flex items-center gap-2 px-5 py-3 text-body-sm font-semibold border border-[var(--color-near-black)]/35 text-[var(--color-near-black)]/65 hover:border-[var(--color-near-black)] hover:text-[var(--color-near-black)] transition-all duration-150"
+          className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] transition-all duration-150 origin-center"
         >
           messen suchen
           <span

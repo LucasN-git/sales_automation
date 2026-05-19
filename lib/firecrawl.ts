@@ -114,21 +114,94 @@ export async function scrapeShowSite(
 }
 
 /**
- * Scrape a company's website and return clean markdown.
- * Returns up to ~30k chars to stay token-efficient.
+ * Try to fetch a company site with a plain HTTP GET + HTML stripping.
+ * Returns empty string on failure or when the page needs JS rendering.
+ * Cap at 8 000 chars — enough for Short analysis.
+ */
+async function fetchSiteLightweight(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(6_000),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; ISPSalesBot/1.0; +https://ispps.com)",
+        Accept: "text/html",
+      },
+    });
+    if (!res.ok) return "";
+    const html = await res.text();
+
+    // If the page is mostly a JS shell, the meaningful text will be tiny.
+    // Strip tags, collapse whitespace, drop script/style blocks.
+    const noScript = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ");
+    const text = noScript
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+    return text.slice(0, 8_000);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Fetch clean markdown via Jina Reader (free, no API key).
+ * Works on JS-heavy SPAs too since Jina renders server-side.
+ */
+async function fetchSiteJina(url: string): Promise<string> {
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        Accept: "text/markdown",
+        "X-Return-Format": "markdown",
+      },
+    });
+    if (!res.ok) return "";
+    const md = await res.text();
+    return md.slice(0, 8_000);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Scrape a company's website and return clean text/markdown.
+ * Tier 1: plain HTTP fetch + HTML strip (free, instant, ~80 % of sites)
+ * Tier 2: Jina Reader (free, JS-rendering, for SPAs)
+ * Tier 3: Firecrawl (paid, only if FIRECRAWL_SCRAPE_ENABLED=true in env)
+ * Cap at 8 000 chars.
  */
 export async function scrapeCompanySite(url: string): Promise<string> {
+  // Tier 1 — plain fetch
+  const lightweight = await fetchSiteLightweight(url);
+  if (lightweight.length >= 400) return lightweight;
+
+  // Tier 2 — Jina Reader (free)
+  const jina = await fetchSiteJina(url);
+  if (jina.length >= 400) return jina;
+
+  // Tier 3 — Firecrawl (opt-in via env var to avoid surprise credit spend)
+  if (process.env.FIRECRAWL_SCRAPE_ENABLED !== "true") return jina || lightweight;
+
   try {
     const result: any = await app().scrapeUrl(url, {
       formats: ["markdown"],
       onlyMainContent: true,
       waitFor: 1000,
     });
-    if (!result?.success) return "";
+    if (!result?.success) return jina || lightweight;
     const md: string = result.markdown ?? result.data?.markdown ?? "";
-    return md.slice(0, 30_000);
+    return md.slice(0, 8_000);
   } catch {
-    return "";
+    return jina || lightweight;
   }
 }
 

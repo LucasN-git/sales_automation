@@ -41,7 +41,7 @@ export function RestartButton({ showId }: { showId: string }) {
       <button
         onClick={handleRestart}
         disabled={pending}
-        className="text-ui-sm px-3 py-1 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-gold)] hover:border-[var(--border-color)] disabled:opacity-40 transition-colors"
+        className="inline-flex items-center text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/60 hover:text-[var(--color-gold)] hover:border-[var(--border-color)] disabled:opacity-40 transition-colors"
       >
         {pending ? "startet" : "neu starten"}
       </button>

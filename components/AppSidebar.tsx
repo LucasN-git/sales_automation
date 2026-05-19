@@ -7,6 +7,7 @@ import { SidebarTopNav } from "./SidebarTopNav";
 import { SidebarFavorites } from "./SidebarFavorites";
 import { SidebarContextSection } from "./SidebarContextSection";
 import { AccountCard } from "./AccountCard";
+import { SidebarGuideLink } from "./SidebarGuideLink";
 
 export function AppSidebarBody({
   profile,
@@ -43,6 +44,7 @@ export function AppSidebarBody({
         <SidebarContextSection onNavigate={onNavigate} />
       </div>
 
+      <SidebarGuideLink onNavigate={onNavigate} />
       <AccountCard profile={profile} settings={settings} />
     </>
   );

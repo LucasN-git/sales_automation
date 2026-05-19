@@ -27,15 +27,20 @@ export function AccountCard({
         onClick={() => setOpen(true)}
         className="w-full text-left flex items-center gap-3 px-3 py-3 border-t border-[var(--border-color-soft)] hover:bg-[var(--color-near-black)]/[0.03] transition-colors"
       >
-        <span className="inline-flex items-center justify-center w-8 h-8 border border-[var(--color-near-black)] text-meta-strong tabular-nums shrink-0">
+        <span
+          className="inline-flex items-center justify-center w-8 h-8 text-meta-strong tabular-nums shrink-0"
+          style={{
+            borderRadius: "6px",
+            background: "rgba(10,10,10,0.07)",
+            border: "1px solid rgba(10,10,10,0.12)",
+            color: "var(--color-near-black)",
+          }}
+        >
           {initials(profile.display_name)}
         </span>
         <span className="flex-1 min-w-0">
           <span className="block text-body-sm font-semibold truncate">
             {profile.display_name}
-          </span>
-          <span className="block text-meta text-[var(--color-near-black)]/45 truncate">
-            Sales Agent
           </span>
           <span className="block text-meta truncate text-[var(--color-near-black)]/60">
             {profile.email}

@@ -197,7 +197,7 @@ export default async function ShowDetailPage({
           <CsvImportButton showId={id} />
           <a
             href={`/api/shows/${id}/export`}
-            className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
+            className="inline-flex items-center gap-2 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] rounded-md text-[var(--color-near-black)]/65 hover:text-[var(--color-near-black)] hover:border-[var(--color-near-black)]/40 transition-colors"
           >
             excel export
           </a>

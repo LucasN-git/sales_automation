@@ -1,32 +1,18 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { priceFor, priceForBrowserSec } from "@/lib/pricing";
-import {
-  getSettings,
-  SHORT_MODEL_DEFAULT,
-  DEEP_MODEL_DEFAULT,
-} from "@/lib/settings";
 import { GoldDot } from "@/components/brand/GoldDot";
 import { FavoriteToggle } from "@/components/FavoriteToggle";
 import {
   ArrowRight,
   BuildingIcon,
   BriefcaseIcon,
-  PlusIcon,
   FlameIcon,
   ActivityIcon,
+  CompetitorsIcon,
+  SearchIcon,
 } from "@/components/brand/Icons";
 
 export const dynamic = "force-dynamic";
-
-type TokenAgg = { tin: number; tout: number; cnt: number };
-type GlobalTokenStats = {
-  short: TokenAgg;
-  deep: TokenAgg;
-  chat: TokenAgg;
-  browser_seconds: number;
-};
-const ZERO_AGG: TokenAgg = { tin: 0, tout: 0, cnt: 0 };
 
 type ShowRow = {
   id: string;
@@ -38,18 +24,6 @@ type ShowRow = {
   exhibitor_count: number;
 };
 
-function formatUsd(usd: number): string {
-  if (usd === 0) return "0.00 $";
-  if (usd < 0.01) return "<0.01 $";
-  return `${usd.toFixed(2)} $`;
-}
-
-function formatNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
 export default async function Dashboard() {
   const supabase = await createClient();
   const {
@@ -58,14 +32,11 @@ export default async function Dashboard() {
   if (!user) return null;
 
   const [
-    { data: tokenStatsData },
     { data: companyOverview },
     { count: showCount },
     { count: activeShowCount },
     { data: shows },
-    settings,
   ] = await Promise.all([
-    supabase.rpc("get_global_token_stats", { p_user_id: user.id }),
     supabase.from("companies_overview").select("best_priority"),
     supabase.from("trade_shows").select("id", { count: "exact", head: true }),
     supabase
@@ -80,24 +51,7 @@ export default async function Dashboard() {
       .order("is_favorite", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(8),
-    getSettings(supabase, user.id),
   ]);
-
-  const tokenSums =
-    (tokenStatsData as GlobalTokenStats | null) ?? {
-      short: ZERO_AGG,
-      deep: ZERO_AGG,
-      chat: ZERO_AGG,
-      browser_seconds: 0,
-    };
-
-  const shortModel = settings?.short_model ?? SHORT_MODEL_DEFAULT;
-  const deepModel = settings?.deep_model ?? DEEP_MODEL_DEFAULT;
-  const totalCost =
-    priceFor(shortModel, tokenSums.short.tin, tokenSums.short.tout) +
-    priceFor(deepModel, tokenSums.deep.tin, tokenSums.deep.tout) +
-    priceFor(deepModel, tokenSums.chat.tin, tokenSums.chat.tout) +
-    priceForBrowserSec(tokenSums.browser_seconds ?? 0);
 
   const overview = (companyOverview ?? []) as Array<{
     best_priority: string | null;
@@ -140,7 +94,7 @@ export default async function Dashboard() {
         />
       </section>
 
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-12">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-12">
         <QuickLink
           href="/companies"
           Icon={BuildingIcon}
@@ -154,10 +108,16 @@ export default async function Dashboard() {
           desc={`${showCount ?? 0} Messen erfasst`}
         />
         <QuickLink
-          href="/shows"
-          Icon={PlusIcon}
-          title="Neue Messe"
-          desc="Aussteller-Listing starten"
+          href="/shows/search"
+          Icon={SearchIcon}
+          title="Messen suchen"
+          desc="Neue relevante Messen entdecken"
+        />
+        <QuickLink
+          href="/competitors"
+          Icon={CompetitorsIcon}
+          title="Konkurrenten"
+          desc="Wettbewerber analysieren und tracken"
         />
       </section>
 
@@ -216,17 +176,6 @@ export default async function Dashboard() {
         )}
       </section>
 
-      <section className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard
-          label="token in"
-          value={formatNum(tokenSums.short.tin + tokenSums.deep.tin + tokenSums.chat.tin)}
-        />
-        <StatCard
-          label="token out"
-          value={formatNum(tokenSums.short.tout + tokenSums.deep.tout + tokenSums.chat.tout)}
-        />
-        <StatCard label="kosten gesamt" value={formatUsd(totalCost)} />
-      </section>
     </>
   );
 }

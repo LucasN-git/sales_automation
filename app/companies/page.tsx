@@ -88,7 +88,7 @@ export default async function CompaniesPage({
           {totalCount > 0 && (
             <a
               href="/api/companies/export"
-              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
+              className="inline-flex items-center gap-2 px-3 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] transition-all duration-150 origin-center"
             >
               excel export
             </a>

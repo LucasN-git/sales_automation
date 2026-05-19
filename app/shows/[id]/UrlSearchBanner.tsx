@@ -205,7 +205,7 @@ function ProposalBanner({
         <button
           onClick={onAccept}
           disabled={pending}
-          className="inline-flex items-center gap-2 px-4 py-2 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
+          className="inline-flex items-center gap-2 px-4 py-2 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
         >
           <span>{pending ? "starte" : "übernehmen, Discovery starten"}</span>
         </button>

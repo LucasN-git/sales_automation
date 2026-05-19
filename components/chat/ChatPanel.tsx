@@ -1826,7 +1826,7 @@ function ChatInput({
           </button>
         </div>
       )}
-      <div className="relative">
+      <div className="flex items-end gap-1.5 bg-white border border-[var(--border-color-soft)] rounded-xl px-2.5 py-2 focus-within:border-[var(--color-near-black)]/50 transition-colors">
         {showCsvAttach && (
           <>
             <input
@@ -1842,7 +1842,7 @@ function ChatInput({
               disabled={sending}
               title="CSV-Datei anhängen"
               aria-label="CSV-Datei anhängen"
-              className="absolute bottom-2.5 left-2.5 w-8 h-8 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)]/70 disabled:opacity-30 transition-colors"
+              className="shrink-0 w-7 h-7 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/40 hover:text-[var(--color-near-black)]/70 disabled:opacity-30 transition-colors"
             >
               <PaperclipIcon size={15} />
             </button>
@@ -1858,15 +1858,15 @@ function ChatInput({
             }
           }}
           placeholder={sending ? "neue frage stellen oder antwort stoppen…" : "frage stellen…"}
-          rows={2}
-          className={`w-full bg-white border border-[var(--border-color-soft)] rounded-xl py-3 pr-14 text-body focus:outline-none focus:border-[var(--color-near-black)]/50 resize-none ${showCsvAttach ? "pl-11" : "pl-4"}`}
+          rows={1}
+          className="flex-1 bg-transparent resize-none text-body focus:outline-none py-1 min-h-[24px] max-h-32"
         />
         <button
           onClick={buttonMode === "stop" ? onStop : onSend}
           disabled={buttonMode === "send" && !hasInput}
           aria-label={buttonMode === "stop" ? "antwort stoppen" : "senden"}
           title={buttonMode === "stop" ? "antwort stoppen" : "senden"}
-          className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/50 hover:text-[var(--color-gold)] disabled:opacity-25 disabled:hover:text-[var(--color-near-black)]/50 transition-colors"
+          className="shrink-0 w-7 h-7 rounded-lg inline-flex items-center justify-center text-[var(--color-near-black)]/50 hover:text-[var(--color-gold)] disabled:opacity-25 disabled:hover:text-[var(--color-near-black)]/50 transition-colors"
         >
           {buttonMode === "stop" ? <StopIcon size={14} /> : <SendIcon size={18} />}
         </button>
