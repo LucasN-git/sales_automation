@@ -83,8 +83,16 @@ export default async function CompaniesPage({
           <span className="tabular-nums">{hotCount} hoch-prio</span>
           <span className="tabular-nums">{multiShowCount} auf mehreren messen</span>
         </div>
-        <div className="mt-6">
+        <div className="mt-6 flex items-center gap-3 flex-wrap">
           <AddCompanyForm />
+          {totalCount > 0 && (
+            <a
+              href="/api/companies/export"
+              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
+            >
+              excel export
+            </a>
+          )}
         </div>
       </header>
 

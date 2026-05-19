@@ -119,6 +119,14 @@ export default async function ShowDiscoveryRunPage({
             label={`Lauf ${runId.slice(0, 8)}`}
             context={`Run ID: ${runId}\nStatus: ${status}${run.current_phase ? `\nPhase: ${run.current_phase}` : ""}${run.error_message ? `\nFehler: ${run.error_message}` : ""}`}
           />
+          {(run.candidates_total as number | null) !== null && (
+            <a
+              href={`/api/show-discovery/${runId}/export`}
+              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
+            >
+              excel export
+            </a>
+          )}
         </div>
         {status === "failed" && run.error_message && (
           <div className="mt-4 px-4 py-3 border-l-2 border-[var(--color-near-black)] bg-[var(--color-near-black)]/[0.03]">

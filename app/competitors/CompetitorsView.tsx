@@ -15,6 +15,7 @@ export type CompetitorRow = {
   website: string | null;
   hq_country: string | null;
   status: "suggested" | "active" | "archived" | "rejected";
+  short_status: "pending" | "running" | "done" | "failed" | null;
   source_event: string | null;
   one_liner: string | null;
   isp_sector_match: string[];
@@ -246,7 +247,21 @@ export function CompetitorsView({
                 )}
               </Link>
               <div className="px-5 pb-4 pt-3 border-t border-[var(--border-color-soft)] flex items-center justify-between gap-3">
-                <StatusBadge status={c.status} />
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={c.status} />
+                  {c.short_status === "running" && (
+                    <span className="inline-flex items-center gap-1 text-meta text-[var(--color-near-black)]/55">
+                      <GoldDot size={5} />
+                      analyse laeuft
+                    </span>
+                  )}
+                  {c.short_status === "pending" && (
+                    <span className="text-meta text-[var(--color-near-black)]/40">analyse steht an</span>
+                  )}
+                  {c.short_status === "failed" && (
+                    <span className="text-meta text-[var(--color-error)]/70">analyse fehlgeschlagen</span>
+                  )}
+                </div>
                 <CurateActions
                   row={c}
                   pending={pendingId === c.id}

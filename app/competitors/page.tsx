@@ -14,6 +14,7 @@ type OverviewRow = {
   website: string | null;
   hq_country: string | null;
   status: "suggested" | "active" | "archived" | "rejected";
+  short_status: "pending" | "running" | "done" | "failed" | null;
   source_event: string | null;
   current_version_id: string | null;
   created_at: string;
@@ -49,7 +50,7 @@ export default async function CompetitorsPage() {
   const { data: competitorsData, error: cErr } = await supabase
     .from("competitors_overview")
     .select(
-      "id, display_name, domain, website, hq_country, status, source_event, current_version_id, created_at, one_liner, positioning, isp_sector_match, threat_level, version_count, customer_link_count, matched_customer_count, show_link_count",
+      "id, display_name, domain, website, hq_country, status, short_status, source_event, current_version_id, created_at, one_liner, positioning, isp_sector_match, threat_level, version_count, customer_link_count, matched_customer_count, show_link_count",
     )
     .order("created_at", { ascending: false })
     .limit(2000);
@@ -78,6 +79,7 @@ export default async function CompetitorsPage() {
       website: r.website,
       hq_country: r.hq_country,
       status: r.status,
+      short_status: r.short_status,
       source_event: r.source_event,
       one_liner: r.one_liner,
       isp_sector_match: r.isp_sector_match ?? [],
@@ -109,10 +111,13 @@ export default async function CompetitorsPage() {
   const anyActiveRun = runs.some(
     (r) => r.status === "pending" || r.status === "running",
   );
+  const anyShortActive = competitors.some(
+    (c) => c.short_status === "pending" || c.short_status === "running",
+  );
 
   return (
     <>
-      {anyActiveRun && <AutoRefresh intervalMs={6000} />}
+      {(anyActiveRun || anyShortActive) && <AutoRefresh intervalMs={6000} />}
       <header className="mb-10">
         <h1 className="text-display">
           Konkurrenten<span style={{ color: "var(--color-gold)" }}>.</span>
@@ -127,12 +132,20 @@ export default async function CompetitorsPage() {
           <span className="tabular-nums">{suggestedCount} vorgeschlagen</span>
           <span className="tabular-nums">{activeCount} aktiv</span>
         </div>
-        <div className="mt-4">
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
           <HelpRequestButton
             source="competitors"
             label="Konkurrenten-Analyse"
             context={`Gesamt: ${totalCount}\nVorgeschlagen: ${suggestedCount}\nAktiv: ${activeCount}`}
           />
+          {totalCount > 0 && (
+            <a
+              href="/api/competitors/export"
+              className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-blue)] hover:border-[var(--color-blue)]/50 transition-colors"
+            >
+              excel export
+            </a>
+          )}
         </div>
       </header>
 

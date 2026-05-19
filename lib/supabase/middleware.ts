@@ -40,12 +40,15 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
     path.startsWith("/api/inngest") ||
+    path.startsWith("/api/dev-login") ||
+    path.startsWith("/api/dev-set-session") ||
     path.startsWith("/_next") ||
     path === "/favicon.ico";
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname =
+      process.env.NODE_ENV === "development" ? "/api/dev-login" : "/login";
     return NextResponse.redirect(url);
   }
 

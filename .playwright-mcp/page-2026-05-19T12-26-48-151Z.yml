@@ -1,0 +1,179 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - button "Sidebar einklappen" [ref=e4]:
+      - img [ref=e5]
+    - generic "Sidebar Breite anpassen" [ref=e7]
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - link "ISP Sales" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - text: ISP Sales
+        - paragraph [ref=e12]: Intelligence
+      - navigation [ref=e13]:
+        - list [ref=e14]:
+          - listitem [ref=e15]:
+            - link "Dashboard" [ref=e16] [cursor=pointer]:
+              - /url: /
+              - img [ref=e17]
+              - generic [ref=e19]: Dashboard
+          - listitem [ref=e20]:
+            - link "Unternehmen" [ref=e21] [cursor=pointer]:
+              - /url: /companies
+              - img [ref=e22]
+              - generic [ref=e24]: Unternehmen
+          - listitem [ref=e25]:
+            - link "Messen" [ref=e26] [cursor=pointer]:
+              - /url: /shows
+              - img [ref=e27]
+              - generic [ref=e29]: Messen
+          - listitem [ref=e30]:
+            - link "Messen suchen" [ref=e31] [cursor=pointer]:
+              - /url: /shows/search
+              - img [ref=e32]
+              - generic [ref=e35]: Messen suchen
+          - listitem [ref=e36]:
+            - link "Konkurrenten" [ref=e37] [cursor=pointer]:
+              - /url: /competitors
+              - img [ref=e38]
+              - generic [ref=e40]: Konkurrenten
+          - listitem [ref=e41]:
+            - link "Kosten" [ref=e42] [cursor=pointer]:
+              - /url: /costs
+              - img [ref=e43]
+              - generic [ref=e45]: Kosten
+        - link "Kurzanleitung" [ref=e47] [cursor=pointer]:
+          - /url: /guide
+          - img [ref=e48]
+          - generic [ref=e52]: Kurzanleitung
+      - button "LN Lucas Nasch Sales Agent nasch.lucas@gmail.com" [ref=e54]:
+        - generic [ref=e55]: LN
+        - generic [ref=e56]:
+          - generic [ref=e57]: Lucas Nasch
+          - generic [ref=e58]: Sales Agent
+          - generic [ref=e59]: nasch.lucas@gmail.com
+  - main [ref=e60]:
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - paragraph [ref=e63]: UBERSICHT
+        - heading "Dashboard." [level=1] [ref=e64]
+        - paragraph [ref=e65]: Ueberblick ueber alle erfassten Messen, Unternehmen und laufende Aktivitaet.
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - generic: messen
+          - generic: "3"
+        - generic [ref=e69]:
+          - generic: unternehmen
+          - generic: "2391"
+        - generic [ref=e71]:
+          - generic: prio hoch
+          - generic: "0"
+        - generic [ref=e73]:
+          - generic: laufende crawls
+          - generic: "1"
+      - generic [ref=e75]:
+        - link "Alle Unternehmen 2391 Firmen aggregiert ueber alle Messen" [ref=e76] [cursor=pointer]:
+          - /url: /companies
+          - img [ref=e78]
+          - generic [ref=e81]:
+            - generic [ref=e82]: Alle Unternehmen
+            - generic [ref=e83]: 2391 Firmen aggregiert ueber alle Messen
+        - link "Alle Messen 3 Messen erfasst" [ref=e84] [cursor=pointer]:
+          - /url: /shows
+          - img [ref=e86]
+          - generic [ref=e89]:
+            - generic [ref=e90]: Alle Messen
+            - generic [ref=e91]: 3 Messen erfasst
+        - link "Neue Messe Aussteller-Listing starten" [ref=e92] [cursor=pointer]:
+          - /url: /shows
+          - img [ref=e94]
+          - generic [ref=e97]:
+            - generic [ref=e98]: Neue Messe
+            - generic [ref=e99]: Aussteller-Listing starten
+      - generic [ref=e100]:
+        - paragraph [ref=e101]: ZULETZT AKTIV
+        - generic [ref=e102]:
+          - heading "letzte messen" [level=2] [ref=e103]
+          - link "alle ansehen" [ref=e104] [cursor=pointer]:
+            - /url: /shows
+            - text: alle ansehen
+            - img [ref=e105]
+        - list [ref=e107]:
+          - listitem [ref=e108]:
+            - link "Euronaval 2026 379 aussteller wartet" [ref=e109] [cursor=pointer]:
+              - /url: /shows/d52a5368-8972-4ffc-abee-4d7dcd00a019
+              - generic:
+                - img [ref=e110]
+                - generic: Euronaval
+                - generic [ref=e112]: "2026"
+              - generic [ref=e113]:
+                - generic [ref=e114]: 379 aussteller
+                - generic [ref=e115]: wartet
+            - button "Als Favorit markieren" [ref=e117]:
+              - img [ref=e118]
+          - listitem [ref=e120]:
+            - link "XPONENTIAL Europe 2026 2026 362 aussteller fertig" [ref=e121] [cursor=pointer]:
+              - /url: /shows/64db5c8b-5e7e-4b08-a523-64920334c2d8
+              - generic:
+                - img [ref=e122]
+                - generic: XPONENTIAL Europe 2026
+                - generic [ref=e124]: "2026"
+              - generic [ref=e125]:
+                - generic [ref=e126]: 362 aussteller
+                - generic [ref=e127]: fertig
+            - button "Als Favorit markieren" [ref=e129]:
+              - img [ref=e130]
+          - listitem [ref=e132]:
+            - link "Manuelle Eintraege 2026 1 aussteller fertig" [ref=e133] [cursor=pointer]:
+              - /url: /shows/2b767c9b-1e36-421e-afdc-be7a242e1b5c
+              - generic:
+                - img [ref=e134]
+                - generic: Manuelle Eintraege
+                - generic [ref=e136]: "2026"
+              - generic [ref=e137]:
+                - generic [ref=e138]: 1 aussteller
+                - generic [ref=e139]: fertig
+            - button "Als Favorit markieren" [ref=e141]:
+              - img [ref=e142]
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic [ref=e146]: token in
+          - generic [ref=e147]: 9.3k
+        - generic [ref=e148]:
+          - generic [ref=e149]: token out
+          - generic [ref=e150]: 4.0k
+        - generic [ref=e151]:
+          - generic [ref=e152]: kosten gesamt
+          - generic [ref=e153]: 0.08 $
+  - complementary [ref=e154]:
+    - generic "Chat Breite anpassen" [ref=e155]
+    - generic [ref=e157]:
+      - generic [ref=e158]:
+        - generic [ref=e159]:
+          - generic [ref=e160]:
+            - generic [ref=e161]: Dashboard
+            - generic "Lifecycle-Chat. Legt neue Messen an, startet Show-Discovery oder Konkurrenten-Discovery, beantwortet uebergreifende Fragen." [ref=e162]:
+              - img [ref=e163]
+          - generic [ref=e166]:
+            - generic [ref=e167]: Chat
+            - generic [ref=e168]: sonnet · web
+        - generic [ref=e169]:
+          - button "Neuer Chat" [ref=e170]:
+            - img [ref=e171]
+          - button "Verlauf anzeigen" [ref=e173]:
+            - img [ref=e174]
+          - button "Mehr" [ref=e178]:
+            - img [ref=e179]
+          - button "Chat einklappen" [ref=e183]:
+            - img [ref=e184]
+      - generic [ref=e187]:
+        - generic [ref=e189]:
+          - generic [ref=e190]: beispiele
+          - list [ref=e191]:
+            - listitem [ref=e192]: "Lege eine neue Messe an: Enforce Tac 2026, https://..."
+            - listitem [ref=e193]: Suche relevante Defense-Messen 2026 in Europa.
+            - listitem [ref=e194]: Starte eine Konkurrenten-Discovery.
+            - listitem [ref=e195]: Wie viele Hot-Leads habe ich insgesamt?
+        - generic [ref=e197]:
+          - textbox "frage stellen…" [ref=e198]
+          - button "senden" [disabled] [ref=e199]:
+            - img [ref=e200]

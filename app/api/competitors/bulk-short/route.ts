@@ -20,7 +20,7 @@ export async function POST() {
     .select("id")
     .eq("user_id", user.id)
     .not("status", "in", '("archived","rejected")')
-    .not("short_status", "in", '("running","pending")');
+    .not("short_status", "in", '("running","done")');
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
