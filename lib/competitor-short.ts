@@ -14,9 +14,8 @@ export const CompetitorShortSchema = z.object({
     .describe("2-4 Saetze: Marktpositionierung, Zielkunden, Unterschied zu Commodity-Anbietern."),
   portfolio: z
     .array(z.string())
-    .min(1)
     .max(10)
-    .describe("Produkt/Service-Liste, kurze Labels wie 'Custom Battery Pack', 'BMS Design'."),
+    .describe("Produkt/Service-Liste, kurze Labels wie 'Custom Battery Pack', 'BMS Design'. Leer wenn nicht erkennbar."),
   isp_sector_match: z
     .array(z.string())
     .max(3)
