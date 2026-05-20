@@ -6,7 +6,7 @@ Projekt-Memory für die Sales-Intelligence-Automation. Sub-Repo `git@github.com:
 
 Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/Industriemessen-URL ein, das System holt alle Aussteller, recherchiert pro Firma (Geschäftsfeld, Größe, Power-Bedarf), matcht gegen den ISP-Capability-Katalog und liefert pro Lead einen Pitch-Hook. Zusätzlich entdeckt das Tool relevante Messen (Show Discovery) und analysiert Wettbewerber (Competitors). Alle Unternehmenseinträge werden über Shows hinweg dedupliziert (Companies).
 
-**Aktueller Stand:** V6 — Company Intel SSoT + Webhook-Infrastruktur. AI Orchestrator + URL-Search + Profile-Enrich + Companies + Competitors (inkl. Short-Analyse + Chat) + Show Discovery + Kosten-Tracking. 43 Migrationen, 16 Inngest-Functions.
+**Aktueller Stand:** V7 — Company Search (Kunden-Discovery). AI Orchestrator + URL-Search + Profile-Enrich + Companies + Competitors (inkl. Short-Analyse + Chat) + Show Discovery + Company Search + Kosten-Tracking. 44 Migrationen, 18 Inngest-Functions.
 
 ---
 
@@ -16,7 +16,7 @@ Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/I
 - **Capability-Katalog:** `lib/isp-catalog.ts`. Gecachter System-Prompt-Block für alle Claude-Calls. Bei Sektor-Änderungen im Brand-Doc muss dieser mitziehen — sonst driftet das Matching.
 - **Prio-Kontext:** `lib/settings.ts` `defaultPrioContext()`. User editiert in Show-Settings, persistiert in `app_settings.prio_context`. Wird als gecachter Block an jeden Match-Call (Short, Deep, Chat) geschickt.
 - **Company Intel SSoT:** `company_short` + `company_deep` sind die kanonischen Analyse-Tabellen (1:1 mit companies). `exhibitor_short`/`exhibitor_deep` sind Write-Through-Mirrors mit `tokens_in=0` — nie direkt als Quelle verwenden, wenn `company_id` bekannt ist.
-- **Schema:** Migrationen in `supabase/migrations/0001_init.sql` bis `0043_companies_overview_v2.sql`. Neue Migrationen als `0044_*.sql` anlegen, nie alte editieren.
+- **Schema:** Migrationen in `supabase/migrations/0001_init.sql` bis `0044_company_search.sql`. Neue Migrationen als `0045_*.sql` anlegen, nie alte editieren.
 
 ---
 
@@ -39,6 +39,8 @@ Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/I
 | Webhook-Infrastruktur (CRM-ready) | `webhook_endpoints`-Tabelle + `fireWebhooks()` in `lib/webhooks.ts`. HMAC-SHA256 Signatur. Events: `company_short.upserted`, `company_deep.upserted`. CRM-System noch nicht festgelegt — Infrastruktur ist vorbereitet. |
 | Companies-Modul cross-show | Global deduplizierte Firmen per `domain`- und `normalized_name`-Index. `companies_overview`-View aggregiert Metriken. |
 | Competitors retries=0 | Web-Search-Calls kosten ~0.15-0.30 EUR pro Lauf. Ein Retry wurde still verdoppeln. Stattdessen: sichtbares Failure + manueller Retry. |
+| Company Search retries=0 | Gleiche Logik wie Competitors. `company-search` und `company-search-result-enrich` haben retries=0; Enrich-Step hat retries=1 (Firecrawl gelegentlich flaky). |
+| Company Search Inline-Short | Kein separater `company_short`-Upsert beim Enrich-Step — die Short-Daten werden direkt in `company_search_results` geschrieben. Beim "zur Unternehmensliste"-Add-Flow wird `company_short` aus dem Result befüllt (nur wenn kein Short existiert). Verhindert doppelte Haiku-Calls. |
 | 3-Spalten-Layout resizable | Links: Navigation + Kontext, Mitte: Content, Rechts: Orchestrator-Chat. Sidebars per localStorage kollabierbar + drag-resize. |
 
 ---
@@ -225,6 +227,8 @@ Editierbare Deep-Felder: `business_summary`, `decision_makers`, `recent_news`, `
 | `competitor-short` | `competitor.short.requested` | — | — | 2 |
 | `show-discovery` | `show.discovery.requested` | 1 per userId | 3/min per userId | 0 |
 | `show-result-scrape` | `show.result.scrape.requested` | 4 | 20/min | 1 |
+| `company-search` | `company.search.requested` | 1 per userId | 3/min per userId | 0 |
+| `company-search-result-enrich` | `company.search.result.enrich.requested` | 4 | 20/min | 1 |
 
 **`onFailure`-Pattern:** Inngest Failure-Events kommen als `event.data.event.data` (doppelt verschachtelt). Nie zu `event.data.exhibitorId` vereinfachen.
 
@@ -272,6 +276,22 @@ User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recher
 
 **Orchestrator-Chat (`lib/show-discovery-orchestrator.ts`, `POST /api/show-discovery/chat`):** Eigener Tool-Loop fuer Messen-Suche, scope=`show_discovery`. Threads in `chat_threads.show_discovery_run_focus` (uuid -> show_discovery_runs, seit 0035). Tool-Defs `SHOW_DISCOVERY_TOOL_DEFS`: start_discovery, cancel_discovery, resume_discovery, get_discovery_status, list_runs, list_results, add_result_to_shows, dismiss_results, update_discovery_settings. add/dismiss/system_prompt-Wechsel laufen immer ueber das Confirmation-Widget. State-Block via `loadShowDiscoveryState()` (aktiver Run, Counts, juengste Logs, Settings-Snapshot). Auf `/shows/search` bindet ein `<ChatScopeBinding scope={{ kind: 'show_discovery', focusRunId, focusName }}/>` die rechte Chat-Spalte automatisch an den aktiven Run.
 
+### Company Search (`/companies/search`, `app/api/company-search/`)
+
+User gibt natürlichsprachliche Suchanfrage ein. Claude Opus 4.7 + Web-Search (`discoverCompanies()` in `lib/claude-company-search.ts`) recherchiert potenzielle Kunden-Kandidaten (Abnehmer von Batterie-/Antriebssystemen). Pro Kandidat: Firecrawl-Scrape der Website + Claude Haiku 4.5 Mini-Analyse (`enrichCompanyShort()`). Ergebnis pro Kandidat: one_liner, priority_label, match_confidence, isp_sector_match_detail, reasoning_bullets, battery_need, user_group — alles direkt in `company_search_results` gespeichert (kein separater company_short-Upsert). Ergebnis-Actions: "zur Unternehmensliste" (Add-Flow) oder "ablehnen".
+
+**Add-Flow:** PATCH `/api/company-search/[runId]/results/[id]` mit `{ action: 'add', confirmed: true }`. Intern: `ensureCompany()` → company dedup → `companies.source` auf `company_search` setzen (nur wenn vorher `exhibitor`) → `company_short` aus Result-Daten befüllen (wenn kein Short existiert) → synthetischer "Manuelle Eintraege"-Show-Eintrag → `exhibitor.deep.requested` feuern (Skip Short, schon vorhanden) → `candidates_added` inkrementieren.
+
+**Orchestrator-Chat (`lib/company-search-orchestrator.ts`, `POST /api/company-search/chat`):** scope=`company_search`. Threads in `chat_threads.company_search_run_focus` (uuid → company_search_runs, seit 0044). Tool-Defs `COMPANY_SEARCH_TOOL_DEFS`: start_search, cancel_search, resume_search, get_search_status, list_runs, list_results, add_result_to_companies, dismiss_results, update_search_settings, read_handbook. State-Block via `loadCompanySearchState()`. Confirmation-Widget-Pattern für `add_result_to_companies` (action_type=`add_result_to_companies`) und `dismiss_results` (action_type=`dismiss_company_results`).
+
+**Settings in `app_settings`:** `company_search_system_prompt`, `company_search_model` (default `claude-opus-4-7`), `company_search_max_tokens` (default 8000), `company_search_max_web_searches` (default 10). Lesen via `effectiveCompanySearch(settings)` in `lib/settings.ts`.
+
+**Log:** `company_search_log` — Helpers `appendCompanySearchLog` / `tryAppendCompanySearchLog` in `lib/company-search-log.ts`.
+
+**Resume:** Loscht `company_search_results` + `company_search_log`, reset Run-Row, neues `company.search.requested`-Event. Identisch zu Show-Discovery-Resume.
+
+**Watch-Out — companies.source:** `source` wird nur beim Erst-Anlage einer Company via `company_search` gesetzt; bestehende Companies die schon `manual` sind, werden nicht uberschrieben (`UPDATE ... WHERE source = 'exhibitor'`). Werte: `exhibitor` (default) | `manual` | `company_search`.
+
 ---
 
 ## Datenbank-Schema
@@ -291,7 +311,7 @@ User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recher
 `exhibitor_id, business_summary, decision_makers, recent_news, technical_pain_points, opening_questions, competition_context, isp_lifecycle_match (text[]), isp_service_fit, full_reasoning, tokens_in, tokens_out` — Tokens sind 0 bei Mirror-Writes
 
 **`companies`**
-`id, user_id, display_name, website, domain (normalized), normalized_name, short_status (pending|running|done|failed|url_not_found), deep_status (none|pending|running|done|failed), created_at`
+`id, user_id, display_name, website, domain (normalized), normalized_name, short_status (pending|running|done|failed|url_not_found), deep_status (none|pending|running|done|failed), source (exhibitor|manual|company_search, DEFAULT exhibitor), created_at`
 
 **`company_short`** (SSoT, PK=company_id, seit 0042)
 `company_id, one_liner, priority_label (hoch|mittel|niedrig), match_confidence (0-100), isp_sector_match (text[]), reasoning_bullets, user_group, battery_need, drone_relevance, service_need (text[]), tokens_in, tokens_out, firecrawl_credits, created_at, updated_at`
@@ -328,14 +348,23 @@ RLS: gleiche Policy via companies
 **`show_discovery_results`**
 `id, run_id, user_id, name, website, location_city, location_country, dates_raw, focus_description, target_audience, isp_sector_match (text[]), relevance_score (0-10), relevance_reasoning, evidence_urls (text[]), is_recurring, recurrence_note, exhibitor_list_url, exhibitor_list_available, firecrawl_status, firecrawl_confirmed_url, firecrawl_extracted (jsonb), dismissed, added_trade_show_id`
 
+**`company_search_runs`** (seit 0044)
+`id, user_id, user_prompt, status (pending|running|done|failed|cancelled), current_phase, candidates_total, candidates_validated, candidates_added, model, tokens_in, tokens_out, web_search_uses, firecrawl_credits, error_message, started_at, finished_at, created_at`
+
+**`company_search_results`** (seit 0044)
+`id, run_id, user_id, name, website, domain, location_city, location_country, description, isp_sector_match (text[]), relevance_score (0-10), relevance_reasoning, evidence_urls (text[]), one_liner, priority_label (hoch|mittel|niedrig), match_confidence (0-100), isp_sector_match_detail (text[]), reasoning_bullets, battery_need, user_group, firecrawl_status (pending|running|done|failed|skipped), firecrawl_confirmed_url, firecrawl_extracted (jsonb), dismissed, added_company_id (→companies), created_at`
+
+**`company_search_log`** (seit 0044)
+`id, user_id, run_id (nullable), level (info|warn|error), phase, message, meta (jsonb), created_at`
+
 **`chat_threads`**
-`id, trade_show_id (nullable), user_id, title, exhibitor_focus, company_focus, competitor_focus (uuid → competitors), last_message_at, created_at`
+`id, trade_show_id (nullable), user_id, title, exhibitor_focus, company_focus, competitor_focus (uuid → competitors), show_discovery_run_focus (uuid → show_discovery_runs), company_search_run_focus (uuid → company_search_runs, seit 0044), last_message_at, created_at`
 
 **`chat_messages`**
 `id, trade_show_id, user_id, thread_id, role, content, tokens_in, tokens_out, model, with_deep_context, with_web_search, pipeline_action (jsonb), created_at`
 
 **`app_settings`** (1 Row pro User)
-`user_id, prio_context, short_model, deep_model, short_system_prompt, short_user_template, short_max_tokens, short_max_input_chars, deep_system_prompt, deep_user_template, deep_max_tokens, deep_max_input_chars, chat_max_tokens, chat_web_search_max_uses, competitor_discovery_system_prompt, competitor_discovery_user_template, competitor_discovery_model, competitor_discovery_max_tokens, competitor_discovery_max_web_searches, show_discovery_system_prompt, show_discovery_max_tokens, show_discovery_max_web_searches`
+`user_id, prio_context, short_model, deep_model, short_system_prompt, short_user_template, short_max_tokens, short_max_input_chars, deep_system_prompt, deep_user_template, deep_max_tokens, deep_max_input_chars, chat_max_tokens, chat_web_search_max_uses, competitor_discovery_system_prompt, competitor_discovery_user_template, competitor_discovery_model, competitor_discovery_max_tokens, competitor_discovery_max_web_searches, show_discovery_system_prompt, show_discovery_max_tokens, show_discovery_max_web_searches, company_search_system_prompt, company_search_model (DEFAULT claude-opus-4-7), company_search_max_tokens (DEFAULT 8000), company_search_max_web_searches (DEFAULT 10)`
 
 **`user_profiles`** — `id (→auth.users), display_name, avatar_url`
 
@@ -431,10 +460,12 @@ Drag-Handle: 1.5px breite vertikale Linie, Gold bei Hover. Resize via `mousedown
 ```
 Logo + "ISP Sales Intelligence"
 SidebarTopNav
-  Dashboard       (DashboardIcon)
-  Unternehmen     (BuildingIcon) → /companies
-  Messen          (BriefcaseIcon) → /shows
-  Konkurrenten    (CompetitorsIcon) → /competitors
+  Dashboard         (DashboardIcon)
+  Unternehmen       (BuildingIcon) → /companies (excludes /companies/search)
+    Kunden suchen   (SearchIcon, indent) → /companies/search
+  Messen            (BriefcaseIcon) → /shows (excludes /shows/search)
+    Messen suchen   (SearchIcon, indent) → /shows/search
+  Konkurrenten      (CompetitorsIcon) → /competitors
 SidebarFavorites  (gepinnte Shows)
 SidebarContextSection  (dynamischer Kontext je nach aktiver Route)
 AccountCard  (User-Profil + Settings, am unteren Rand)
@@ -532,6 +563,8 @@ niedrig: border 1px rgba(10,10,10,0.10), text near-black(40%)
 | `/` | Dashboard. | 4 Stat-Cards, 3 Quick-Links, letzte 8 Shows, Token-Stats |
 | `/companies` | Unternehmen. | Deduplizierte Firmen-Liste, Filter, Stat-Bar |
 | `/companies/[id]` | Firmen-Name | Short-Block (editierbar) + Deep-Block (editierbar) + Messen-Teilnahmen |
+| `/companies/search` | Unternehmen suchen. | NewSearchForm + Run-Grid. ChatScopeBinding kind=`company_search` |
+| `/companies/search/runs/[runId]` | Lauf | 3 Tabs: ergebnisse (CompanySearchResultCard) / log / kosten |
 | `/shows` | Messen. | 2 Sections: manuell erfasst (Grid) + entdeckt (Liste) |
 | `/shows/[id]` | Show-Name | Toolbar + 5 View-Tabs: aussteller, prozess, log, kosten, progress |
 | `/shows/[id]/exhibitors/[exId]` | Firmen-Name | Stammdaten + Short-Block (mit "intel gilt unternehmensweit"-Banner) + Deep-Block |
@@ -719,7 +752,7 @@ Gold-Punkt am Wert = einziger Gold-Akzent der Karte. Kein zweites gold-Element g
 | `DELETE` | `/api/shows/[id]/chat?thread=[id]` | Delete one thread |
 | `DELETE` | `/api/shows/[id]/chat` | Delete all threads |
 
-### Competitors, Show Discovery, Settings
+### Competitors, Show Discovery, Company Search, Settings
 
 | Methode | Pfad | Funktion |
 |---|---|---|
@@ -733,6 +766,13 @@ Gold-Punkt am Wert = einziger Gold-Akzent der Karte. Kein zweites gold-Element g
 | `GET` | `/api/show-discovery/[runId]/results` | List candidates |
 | `PATCH` | `/api/show-discovery/[runId]/results/[id]` | Dismiss / add to trade_shows |
 | `POST` | `/api/show-discovery/chat` | SSE-Stream, Show-Discovery-Orchestrator-Tool-Loop |
+| `POST/GET` | `/api/company-search` | Neuen Kunden-Such-Lauf starten / letzte 10 Laeufe |
+| `GET/DELETE` | `/api/company-search/[runId]` | Get run / Delete run (cascades) |
+| `POST` | `/api/company-search/[runId]/cancel` | Cancel laufenden Run |
+| `POST` | `/api/company-search/[runId]/resume` | Resume (loscht Results+Logs, reset, neues Event) |
+| `GET` | `/api/company-search/[runId]/results` | List results (by relevance_score DESC) |
+| `PATCH` | `/api/company-search/[runId]/results/[id]` | `{ action: 'add', confirmed: true }` oder `{ action: 'dismiss' }` |
+| `POST/GET/DELETE` | `/api/company-search/chat` | SSE-Stream Kunden-Such-Orchestrator / threads / messages |
 | `GET/PATCH` | `/api/settings` | Get/update app_settings |
 | `GET/PATCH` | `/api/profile` | Get/update user_profiles |
 
@@ -746,7 +786,9 @@ npm run inngest:dev   # Port 8288 — Inngest UI + Worker
 npm run dev           # Port 3000 — Next.js
 ```
 
-Login per Magic-Link an `ALLOWED_EMAIL`. Alle anderen Adressen werden in `app/auth/callback/route.ts` rejected.
+**Auth auf localhost:**
+`DEV_BYPASS_AUTH=true` in `.env.local` setzen → kein Login-Screen, automatisch als erster `ALLOWED_EMAILS`-User eingeloggt. Route `app/api/dev-auto-login/route.ts` legt den User einmalig mit Dummy-Passwort in Supabase an (via Service Role) und logt per `signInWithPassword` ein. Kein Magic-Link-Redirect-Chain, Cookies werden direkt gesetzt.
+Ohne `DEV_BYPASS_AUTH`: in `NODE_ENV=development` leitet Middleware auf `/api/dev-login` (Magic-Link via Admin API, unzuverlassig wegen PKCE). In Produktion: echte Magic-Link-Flow via Supabase SMTP. Alle Adressen ausserhalb `ALLOWED_EMAILS`/`ALLOWED_EMAIL_DOMAINS` werden in `app/auth/callback/route.ts` rejected.
 
 Auto-Refresh: Polling alle 5 s, solange `trade_shows.status` IN (queued, crawling) oder Aussteller mit pending/running-Status vorhanden.
 

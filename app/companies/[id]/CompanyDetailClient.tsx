@@ -14,6 +14,8 @@ import {
   EditableCompanyIntelField,
   EditableCompanySelectField,
 } from "./EditableCompanyIntelField";
+import { CompanyProfileBlock } from "./CompanyProfileBlock";
+import { parseSourceTag } from "@/components/SourceBadge";
 import { USER_GROUP_VALUES, BATTERY_NEED_VALUES, DRONE_RELEVANCE_VALUES } from "@/lib/claude";
 import type { CompanyShortRow, CompanyDeepRow } from "@/lib/companies";
 
@@ -68,6 +70,8 @@ export function CompanyDetailClient({
 
   return (
     <>
+      {shortIntel && <CompanyProfileBlock shortIntel={shortIntel} />}
+
       <ShortBlock
         companyId={companyId}
         company={company}
@@ -565,6 +569,13 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+const SOURCE_TAG_COLORS: Record<string, string> = {
+  Website: "text-[var(--color-near-black)]/40 border-[var(--border-color-soft)]",
+  "Web-Suche": "text-[var(--color-near-black)]/40 border-[var(--border-color-soft)]",
+  "Messe-Profil": "text-[var(--color-near-black)]/40 border-[var(--border-color-soft)]",
+  "Claude-Wissen": "text-[var(--color-near-black)]/30 border-[var(--border-color-soft)]",
+};
+
 function ReasoningBullets({ text }: { text: string }) {
   const lines = text
     .split("\n")
@@ -572,12 +583,23 @@ function ReasoningBullets({ text }: { text: string }) {
     .filter(Boolean);
   return (
     <ul className="space-y-1.5 pl-3">
-      {lines.map((l, i) => (
-        <li key={i} className="text-body-sm text-[var(--color-near-black)]/80 flex gap-2">
-          <span className="text-[var(--color-gold)] shrink-0 mt-0.5">·</span>
-          <span>{l}</span>
-        </li>
-      ))}
+      {lines.map((l, i) => {
+        const { text: bulletText, tag } = parseSourceTag(l);
+        const tagColor = tag ? (SOURCE_TAG_COLORS[tag] ?? SOURCE_TAG_COLORS["Website"]) : null;
+        return (
+          <li key={i} className="text-body-sm text-[var(--color-near-black)]/80 flex gap-2 items-baseline">
+            <span className="text-[var(--color-gold)] shrink-0 mt-0.5">·</span>
+            <span className="flex-1">{bulletText}</span>
+            {tag && (
+              <span
+                className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 border leading-none ${tagColor}`}
+              >
+                {tag}
+              </span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

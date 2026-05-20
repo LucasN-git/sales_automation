@@ -4,6 +4,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { CompetitorsView, type CompetitorRow, type DiscoveryRun } from "./CompetitorsView";
 import { CompetitorDiscoveryForm } from "./CompetitorDiscoveryForm";
 import { HelpRequestButton } from "@/components/HelpRequestButton";
+import { OpenSettingsButton } from "@/components/OpenSettingsButton";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +139,12 @@ export default async function CompetitorsPage() {
             label="Konkurrenten-Analyse"
             context={`Gesamt: ${totalCount}\nVorgeschlagen: ${suggestedCount}\nAktiv: ${activeCount}`}
           />
+          <OpenSettingsButton
+            tab="konkurrenten"
+            className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-near-black)] hover:border-[var(--color-near-black)]/40 transition-colors"
+          >
+            kontext anzeigen
+          </OpenSettingsButton>
           {totalCount > 0 && (
             <a
               href="/api/competitors/export"

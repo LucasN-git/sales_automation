@@ -18,16 +18,20 @@ import {
   defaultChatSystemPrompt,
   type AppSettings,
 } from "@/lib/settings";
-import { SHOW_DISCOVERY_SYSTEM_DEFAULT } from "@/lib/claude";
+import { SHOW_DISCOVERY_SYSTEM_DEFAULT, COMPETITOR_DISCOVERY_SYSTEM_DEFAULT, COMPETITOR_DISCOVERY_MODEL_DEFAULT } from "@/lib/claude";
+import { COMPANY_SEARCH_SYSTEM_DEFAULT, COMPANY_SEARCH_MODEL } from "@/lib/claude-company-search";
 import type { UserProfile } from "@/lib/profile";
+import type { AccountDrawerTab } from "./OpenSettingsButton";
 
 const SHORT_MODEL_OPTIONS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"];
 const DEEP_MODEL_OPTIONS = ["claude-sonnet-4-6", "claude-opus-4-7"];
+const COMPETITOR_MODEL_OPTIONS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-7"];
+const COMPANY_SEARCH_MODEL_OPTIONS = ["claude-sonnet-4-6", "claude-opus-4-7"];
 
 const SHARED_PLACEHOLDERS = ["{{company_name}}", "{{profile_block}}", "{{scraped_content}}"];
 const DEEP_PLACEHOLDERS = [...SHARED_PLACEHOLDERS, "{{short_intel}}"];
 
-type Tab = "profile" | "context" | "anleitung" | "short" | "deep" | "chat" | "models" | "messen";
+type Tab = AccountDrawerTab;
 
 type ParamFieldKey = keyof typeof PARAM_DEFAULTS;
 
@@ -36,18 +40,24 @@ export function AccountDrawer({
   onClose,
   profile,
   settings,
+  initialTab,
 }: {
   open: boolean;
   onClose: () => void;
   profile: UserProfile;
   settings: AppSettings;
+  initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("profile");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "profile");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (open && initialTab) setTab(initialTab);
+  }, [open, initialTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -109,6 +119,12 @@ export function AccountDrawer({
           <DrawerTab active={tab === "messen"} onClick={() => setTab("messen")}>
             messen suchen
           </DrawerTab>
+          <DrawerTab active={tab === "konkurrenten"} onClick={() => setTab("konkurrenten")}>
+            konkurrenten
+          </DrawerTab>
+          <DrawerTab active={tab === "unternehmen"} onClick={() => setTab("unternehmen")}>
+            unternehmen suchen
+          </DrawerTab>
         </nav>
 
         <div className="flex-1 overflow-y-auto px-8 py-6">
@@ -120,6 +136,8 @@ export function AccountDrawer({
           {tab === "chat" && <ChatTab settings={settings} />}
           {tab === "models" && <ModelsTab settings={settings} />}
           {tab === "messen" && <ShowDiscoveryTab settings={settings} />}
+          {tab === "konkurrenten" && <CompetitorDiscoveryTab settings={settings} />}
+          {tab === "unternehmen" && <CompanySearchTab settings={settings} />}
         </div>
       </section>
     </div>,
@@ -906,9 +924,21 @@ function ShowDiscoveryTab({ settings }: { settings: AppSettings }) {
 function ModelsTab({ settings }: { settings: AppSettings }) {
   const [shortModel, setShortModel] = useState(settings.short_model);
   const [deepModel, setDeepModel] = useState(settings.deep_model);
+  const [competitorModel, setCompetitorModel] = useState(
+    settings.competitor_discovery_model ?? COMPETITOR_DISCOVERY_MODEL_DEFAULT,
+  );
+  const [companySearchModel, setCompanySearchModel] = useState(
+    settings.company_search_model ?? COMPANY_SEARCH_MODEL,
+  );
   const [busy, setBusy] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const dirty =
+    shortModel !== settings.short_model ||
+    deepModel !== settings.deep_model ||
+    competitorModel !== (settings.competitor_discovery_model ?? COMPETITOR_DISCOVERY_MODEL_DEFAULT) ||
+    companySearchModel !== (settings.company_search_model ?? COMPANY_SEARCH_MODEL);
 
   async function handleSave() {
     setBusy(true);
@@ -916,7 +946,12 @@ function ModelsTab({ settings }: { settings: AppSettings }) {
     const res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ short_model: shortModel, deep_model: deepModel }),
+      body: JSON.stringify({
+        short_model: shortModel,
+        deep_model: deepModel,
+        competitor_discovery_model: competitorModel,
+        company_search_model: companySearchModel,
+      }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -937,9 +972,7 @@ function ModelsTab({ settings }: { settings: AppSettings }) {
           className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         >
           {SHORT_MODEL_OPTIONS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m}>{m}</option>
           ))}
         </select>
         <p className="mt-2 text-meta">empfehlung: haiku 4.5. schnell, billig, reicht fuer 1-satz-match.</p>
@@ -953,12 +986,46 @@ function ModelsTab({ settings }: { settings: AppSettings }) {
           className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
         >
           {DEEP_MODEL_OPTIONS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m}>{m}</option>
           ))}
         </select>
         <p className="mt-2 text-meta">empfehlung: sonnet 4.6 fuer alle recherchen. opus nur wenn besonders schwierig.</p>
+      </div>
+
+      <div>
+        <label className="block text-meta mb-2">konkurrenten-analyse</label>
+        <select
+          value={competitorModel}
+          onChange={(e) => setCompetitorModel(e.target.value)}
+          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+        >
+          {COMPETITOR_MODEL_OPTIONS.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+        <p className="mt-2 text-meta">standard: sonnet 4.6. nutzt web-search, hoeheres modell verbessert recherche-qualitaet.</p>
+      </div>
+
+      <div>
+        <label className="block text-meta mb-2">unternehmen suchen</label>
+        <select
+          value={companySearchModel}
+          onChange={(e) => setCompanySearchModel(e.target.value)}
+          className="w-full bg-white border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body focus:outline-none focus:border-[var(--color-near-black)]"
+        >
+          {COMPANY_SEARCH_MODEL_OPTIONS.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+        <p className="mt-2 text-meta">standard: opus 4.7. teure web-suche, hohes modell empfohlen fuer bessere kandidaten-qualitaet.</p>
+      </div>
+
+      <div>
+        <label className="block text-meta mb-2">messen suchen</label>
+        <div className="w-full bg-[var(--color-cream-sunken)] border border-[var(--border-color-soft)] rounded-md px-3 py-2 text-body text-[var(--color-near-black)]/55">
+          claude-opus-4-7 (fest)
+        </div>
+        <p className="mt-2 text-meta">modell ist fest auf opus 4.7 gesetzt, kein override vorgesehen.</p>
       </div>
 
       <Hairline />
@@ -966,9 +1033,201 @@ function ModelsTab({ settings }: { settings: AppSettings }) {
       <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={handleSave}
-          disabled={
-            busy || (shortModel === settings.short_model && deepModel === settings.deep_model)
-          }
+          disabled={busy || !dirty}
+          className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
+        >
+          <span>{busy ? "speichere" : "speichern"}</span>
+          <GoldDot size={6} />
+        </button>
+        {savedAt && <span className="text-meta">gespeichert um {savedAt}</span>}
+        {error && <span className="text-body-sm text-[var(--color-near-black)]/70">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function CompetitorDiscoveryTab({ settings }: { settings: AppSettings }) {
+  const [systemPrompt, setSystemPrompt] = useState(
+    settings.competitor_discovery_system_prompt ?? COMPETITOR_DISCOVERY_SYSTEM_DEFAULT,
+  );
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const systemEmpty = systemPrompt.trim().length === 0;
+  const dirty =
+    systemPrompt !==
+    (settings.competitor_discovery_system_prompt ?? COMPETITOR_DISCOVERY_SYSTEM_DEFAULT);
+
+  async function save(body: Record<string, unknown>): Promise<AppSettings | null> {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error ?? "Fehler beim Speichern");
+      return null;
+    }
+    setSavedAt(new Date().toLocaleTimeString("de-DE"));
+    return (await res.json()) as AppSettings;
+  }
+
+  async function handleSave() {
+    await save({ competitor_discovery_system_prompt: systemPrompt.trim() || null });
+  }
+
+  async function resetSystem() {
+    const fresh = await save({ reset_field: "competitor_discovery_system_prompt" });
+    if (fresh)
+      setSystemPrompt(fresh.competitor_discovery_system_prompt ?? COMPETITOR_DISCOVERY_SYSTEM_DEFAULT);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-body font-semibold mb-1">Konkurrenten-Analyse</h3>
+        <p className="text-meta text-[var(--color-near-black)]/65">
+          System-Prompt fuer die automatische Wettbewerber-Discovery. Beschreibt ISP-Profil,
+          relevante Sektoren und Kriterien fuer Konkurrenten-Identifikation. Leer = Code-Default.
+        </p>
+        <p className="mt-1 text-meta text-[var(--color-near-black)]/50">
+          Modell einstellbar unter &quot;modelle&quot;. Default: claude-sonnet-4.6.
+        </p>
+      </div>
+
+      <section className="space-y-2">
+        <div className="flex items-baseline justify-between">
+          <div className="text-meta-strong">system-prompt</div>
+          <button
+            type="button"
+            onClick={resetSystem}
+            disabled={busy}
+            className="text-meta hover:text-[var(--color-near-black)] transition-colors"
+          >
+            default wiederherstellen
+          </button>
+        </div>
+        {systemEmpty && (
+          <p className="text-meta text-[var(--color-near-black)]/55">
+            Leer. Es wird der Code-Default verwendet. Klick &quot;default wiederherstellen&quot; um den Default in den Editor zu laden.
+          </p>
+        )}
+        <MarkdownEditor
+          value={systemPrompt}
+          onChange={setSystemPrompt}
+          rows={16}
+          ariaLabel="Competitor Discovery System-Prompt"
+        />
+      </section>
+
+      <Hairline />
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={handleSave}
+          disabled={busy || !dirty}
+          className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
+        >
+          <span>{busy ? "speichere" : "speichern"}</span>
+          <GoldDot size={6} />
+        </button>
+        {savedAt && <span className="text-meta">gespeichert um {savedAt}</span>}
+        {error && <span className="text-body-sm text-[var(--color-near-black)]/70">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function CompanySearchTab({ settings }: { settings: AppSettings }) {
+  const [systemPrompt, setSystemPrompt] = useState(
+    settings.company_search_system_prompt ?? COMPANY_SEARCH_SYSTEM_DEFAULT,
+  );
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const systemEmpty = systemPrompt.trim().length === 0;
+  const dirty =
+    systemPrompt !==
+    (settings.company_search_system_prompt ?? COMPANY_SEARCH_SYSTEM_DEFAULT);
+
+  async function save(body: Record<string, unknown>): Promise<AppSettings | null> {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error ?? "Fehler beim Speichern");
+      return null;
+    }
+    setSavedAt(new Date().toLocaleTimeString("de-DE"));
+    return (await res.json()) as AppSettings;
+  }
+
+  async function handleSave() {
+    await save({ company_search_system_prompt: systemPrompt.trim() || null });
+  }
+
+  async function resetSystem() {
+    const fresh = await save({ reset_field: "company_search_system_prompt" });
+    if (fresh)
+      setSystemPrompt(fresh.company_search_system_prompt ?? COMPANY_SEARCH_SYSTEM_DEFAULT);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-body font-semibold mb-1">Unternehmen suchen</h3>
+        <p className="text-meta text-[var(--color-near-black)]/65">
+          System-Prompt fuer die KI-gestuetzte Kunden-Discovery. Definiert welche Firmen-Typen
+          gesucht werden und nach welchen Kriterien sie bewertet werden. Leer = Code-Default.
+        </p>
+        <p className="mt-1 text-meta text-[var(--color-near-black)]/50">
+          Modell einstellbar unter &quot;modelle&quot;. Default: claude-opus-4.7.
+        </p>
+      </div>
+
+      <section className="space-y-2">
+        <div className="flex items-baseline justify-between">
+          <div className="text-meta-strong">system-prompt</div>
+          <button
+            type="button"
+            onClick={resetSystem}
+            disabled={busy}
+            className="text-meta hover:text-[var(--color-near-black)] transition-colors"
+          >
+            default wiederherstellen
+          </button>
+        </div>
+        {systemEmpty && (
+          <p className="text-meta text-[var(--color-near-black)]/55">
+            Leer. Es wird der Code-Default verwendet. Klick &quot;default wiederherstellen&quot; um den Default in den Editor zu laden.
+          </p>
+        )}
+        <MarkdownEditor
+          value={systemPrompt}
+          onChange={setSystemPrompt}
+          rows={16}
+          ariaLabel="Company Search System-Prompt"
+        />
+      </section>
+
+      <Hairline />
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={handleSave}
+          disabled={busy || !dirty}
           className="inline-flex items-center gap-2 px-5 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 disabled:hover:text-[var(--color-near-black)] transition-all duration-150 origin-center"
         >
           <span>{busy ? "speichere" : "speichern"}</span>

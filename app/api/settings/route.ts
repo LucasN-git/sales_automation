@@ -18,7 +18,8 @@ import {
   PARAM_DEFAULTS,
   PARAM_BOUNDS,
 } from "@/lib/settings";
-import { SHOW_DISCOVERY_SYSTEM_DEFAULT } from "@/lib/claude";
+import { SHOW_DISCOVERY_SYSTEM_DEFAULT, COMPETITOR_DISCOVERY_SYSTEM_DEFAULT } from "@/lib/claude";
+import { COMPANY_SEARCH_SYSTEM_DEFAULT } from "@/lib/claude-company-search";
 
 export async function GET() {
   const supabase = await createClient();
@@ -39,6 +40,8 @@ const PromptResetField = z.enum([
   "deep_user_template",
   "chat_system_prompt",
   "show_discovery_system_prompt",
+  "competitor_discovery_system_prompt",
+  "company_search_system_prompt",
   "handbook",
   "short_max_tokens",
   "short_max_input_chars",
@@ -52,12 +55,16 @@ const PutBody = z.object({
   prio_context: z.string().min(10).max(20_000).optional(),
   short_model: z.string().min(3).max(100).optional(),
   deep_model: z.string().min(3).max(100).optional(),
+  competitor_discovery_model: z.string().min(3).max(100).nullable().optional(),
+  company_search_model: z.string().min(3).max(100).nullable().optional(),
   short_system_prompt: z.string().max(20_000).nullable().optional(),
   short_user_template: z.string().max(20_000).nullable().optional(),
   deep_system_prompt: z.string().max(20_000).nullable().optional(),
   deep_user_template: z.string().max(20_000).nullable().optional(),
   chat_system_prompt: z.string().max(20_000).nullable().optional(),
   show_discovery_system_prompt: z.string().max(20_000).nullable().optional(),
+  competitor_discovery_system_prompt: z.string().max(20_000).nullable().optional(),
+  company_search_system_prompt: z.string().max(20_000).nullable().optional(),
   handbook: z.string().max(30_000).nullable().optional(),
   short_max_tokens: z.number().int().min(100).max(8000).nullable().optional(),
   short_max_input_chars: z.number().int().min(500).max(200_000).nullable().optional(),
@@ -102,11 +109,14 @@ export async function PUT(request: Request) {
     await updateHandbook(supabase, user.id, body.handbook);
   }
 
-  if (body.short_model || body.deep_model) {
-    await updateModels(supabase, user.id, {
-      short_model: body.short_model,
-      deep_model: body.deep_model,
-    });
+  if (body.short_model || body.deep_model || body.competitor_discovery_model !== undefined || body.company_search_model !== undefined) {
+    const patch: Record<string, unknown> = {};
+    if (body.short_model) patch.short_model = body.short_model;
+    if (body.deep_model) patch.deep_model = body.deep_model;
+    if (body.competitor_discovery_model !== undefined) patch.competitor_discovery_model = body.competitor_discovery_model;
+    if (body.company_search_model !== undefined) patch.company_search_model = body.company_search_model;
+    const { error } = await supabase.from("app_settings").update(patch).eq("user_id", user.id);
+    if (error) throw new Error(`update models: ${error.message}`);
   }
 
   // Direkter Reset auf den Code-Default. Bei Texten schreiben wir den
@@ -122,6 +132,8 @@ export async function PUT(request: Request) {
     deep_user_template: defaultDeepUserTemplate,
     chat_system_prompt: defaultChatSystemPrompt,
     show_discovery_system_prompt: () => SHOW_DISCOVERY_SYSTEM_DEFAULT,
+    competitor_discovery_system_prompt: () => COMPETITOR_DISCOVERY_SYSTEM_DEFAULT,
+    company_search_system_prompt: () => COMPANY_SEARCH_SYSTEM_DEFAULT,
   };
   const PARAM_FIELDS = new Set(Object.keys(PARAM_DEFAULTS));
 
@@ -149,6 +161,10 @@ export async function PUT(request: Request) {
     promptPatch.chat_system_prompt = body.chat_system_prompt;
   if (body.show_discovery_system_prompt !== undefined)
     promptPatch.show_discovery_system_prompt = body.show_discovery_system_prompt;
+  if (body.competitor_discovery_system_prompt !== undefined)
+    promptPatch.competitor_discovery_system_prompt = body.competitor_discovery_system_prompt;
+  if (body.company_search_system_prompt !== undefined)
+    promptPatch.company_search_system_prompt = body.company_search_system_prompt;
   if (Object.keys(promptPatch).length > 0) {
     await updatePrompts(supabase, user.id, promptPatch);
   }

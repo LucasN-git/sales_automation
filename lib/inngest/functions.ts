@@ -31,6 +31,7 @@ import {
   enrichCompanyShort,
   COMPANY_SEARCH_MODEL,
 } from "@/lib/claude-company-search";
+import type { CompanyAddress, ContactPerson, SourceRef } from "@/lib/companies";
 import {
   getSettingsServiceRole,
   defaultPrioContext,
@@ -557,6 +558,113 @@ export const shortOverviewBulk = inngest.createFunction(
   },
 );
 
+// ---------- Profile-Extraktion aus profile_data ----------
+// Liest Stammdaten direkt aus dem Messe-Scrape (kein neuer LLM-Call).
+// Gibt profileFields und sources-Map zurueck. Write-once: Caller prueft
+// ob Felder bereits gesetzt sind, bevor er schreibt.
+
+function extractProfileFromData(
+  profileData: Record<string, unknown> | null,
+  showName: string,
+  profileUrl: string | null,
+  website: string | null,
+): { profileFields: Record<string, unknown>; sources: Record<string, SourceRef> } {
+  if (!profileData) return { profileFields: {}, sources: {} };
+
+  const fields: Record<string, unknown> = {};
+  const sources: Record<string, SourceRef> = {};
+
+  const algoliaRef = (): SourceRef => ({ type: "algolia", label: showName });
+  const scrapeRef = (): SourceRef => ({
+    type: "messe_profil_scrape",
+    label: showName,
+    ...(profileUrl ? { url: profileUrl } : {}),
+  });
+  const messeRef = (): SourceRef => ({
+    type: "messe_profil",
+    label: showName,
+    ...(profileUrl ? { url: profileUrl } : {}),
+  });
+  const websiteRef = (): SourceRef => ({
+    type: "website",
+    label: website ?? showName,
+    ...(website ? { url: website } : {}),
+  });
+
+  if (profileData.address && typeof profileData.address === "object") {
+    fields.address = profileData.address as CompanyAddress;
+    sources.address = algoliaRef();
+  }
+
+  if (typeof profileData.email === "string" && profileData.email) {
+    fields.email = profileData.email;
+    sources.email = scrapeRef();
+  }
+
+  if (typeof profileData.phone === "string" && profileData.phone) {
+    fields.phone = profileData.phone;
+    sources.phone = scrapeRef();
+  }
+
+  if (typeof profileData.companyType === "string" && profileData.companyType) {
+    fields.company_type = profileData.companyType;
+    sources.company_type = algoliaRef();
+  }
+
+  if (typeof profileData.slogan === "string" && profileData.slogan) {
+    fields.slogan = profileData.slogan;
+    sources.slogan = algoliaRef();
+  }
+
+  const cats = profileData.categories;
+  if (Array.isArray(cats) && cats.length > 0) {
+    fields.categories = cats as string[];
+    sources.categories = algoliaRef();
+  }
+
+  // Merge products[] (Algolia) + products_scraped[] (Jina/Haiku) — dedupliziert.
+  const algoliaProducts = Array.isArray(profileData.products) ? profileData.products as string[] : [];
+  const scrapedProducts = Array.isArray(profileData.products_scraped) ? profileData.products_scraped as string[] : [];
+  const allProducts = [...new Set([...algoliaProducts, ...scrapedProducts])].filter(Boolean);
+  if (allProducts.length > 0) {
+    fields.products = allProducts;
+    sources.products = scrapedProducts.length > 0 ? scrapeRef() : algoliaRef();
+  }
+
+  const contactPersons = profileData.contact_persons;
+  if (Array.isArray(contactPersons) && contactPersons.length > 0) {
+    fields.contact_persons = contactPersons as ContactPerson[];
+    sources.contact_persons = scrapeRef();
+  }
+
+  const coEx = profileData.coExhibitors;
+  if (Array.isArray(coEx) && coEx.length > 0) {
+    fields.co_exhibitors = coEx as string[];
+    sources.co_exhibitors = algoliaRef();
+  }
+
+  // description_long (Haiku-Scrape) bevorzugt vor companyDescription (Algolia).
+  const descLong = typeof profileData.description_long === "string" ? profileData.description_long : null;
+  const descAlgolia = typeof profileData.companyDescription === "string" ? profileData.companyDescription : null;
+  const desc = descLong || descAlgolia;
+  if (desc) {
+    fields.company_description = desc;
+    sources.company_description = descLong ? scrapeRef() : algoliaRef();
+  }
+
+  if (typeof profileData.logo === "string" && profileData.logo) {
+    fields.logo_url = profileData.logo;
+    sources.logo_url = messeRef();
+  }
+
+  if (typeof profileData.employee_estimate === "string" && profileData.employee_estimate) {
+    fields.employee_estimate = profileData.employee_estimate;
+    sources.employee_estimate = websiteRef();
+  }
+
+  return { profileFields: fields, sources };
+}
+
 // ---------- Per-Aussteller Short-Overview ----------
 
 export const exhibitorShort = inngest.createFunction(
@@ -632,20 +740,21 @@ export const exhibitorShort = inngest.createFunction(
       const { data: cs } = await supabase
         .from("company_short")
         .select(
-          "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need",
+          "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, address",
         )
         .eq("company_id", ex.company_id)
         .maybeSingle();
       if (!cs) return null;
-      return { companyId: ex.company_id, shortData: cs };
+      return { companyId: ex.company_id, shortData: cs, profileSet: !!cs.address };
     });
 
     if (companyShortExists) {
       await step.run("mirror-from-company-short", async () => {
+        const { shortData, companyId, profileSet } = companyShortExists;
         await supabase.from("exhibitor_short").upsert(
           {
             exhibitor_id: exhibitorId,
-            ...companyShortExists.shortData,
+            ...shortData,
             borrowed_from_show_name: "unternehmensebene",
             tokens_in: 0,
             tokens_out: 0,
@@ -653,6 +762,31 @@ export const exhibitorShort = inngest.createFunction(
           },
           { onConflict: "exhibitor_id" },
         );
+
+        // Profil-Felder nachfuellen falls company_short sie noch nicht hat
+        // (z.B. wenn Short erstmals ohne profile_data lief).
+        if (!profileSet && exhibitor.profile_data) {
+          const { data: showRow } = await supabase
+            .from("trade_shows")
+            .select("name")
+            .eq("id", tradeShowId)
+            .maybeSingle();
+          const showName = showRow?.name ?? "Messe";
+          const { profileFields, sources } = extractProfileFromData(
+            exhibitor.profile_data as Record<string, unknown>,
+            showName,
+            exhibitor.profile_url,
+            exhibitor.website,
+          );
+          if (Object.keys(profileFields).length > 0) {
+            await supabase
+              .from("company_short")
+              .update({ ...profileFields, sources })
+              .eq("company_id", companyId);
+            revalidateTag(companyIntelTag(companyId));
+          }
+        }
+
         await supabase
           .from("exhibitors")
           .update({ short_status: "done", current_step: null })
@@ -756,10 +890,37 @@ export const exhibitorShort = inngest.createFunction(
       const companyId = exForCompany?.company_id ?? null;
 
       if (companyId) {
+        // Profil-Felder aus profile_data extrahieren (write-once).
+        const { data: showRow } = await supabase
+          .from("trade_shows")
+          .select("name")
+          .eq("id", tradeShowId)
+          .maybeSingle();
+        const showName = showRow?.name ?? "Messe";
+        const { profileFields, sources } = extractProfileFromData(
+          exhibitor.profile_data as Record<string, unknown> | null,
+          showName,
+          exhibitor.profile_url,
+          exhibitor.website,
+        );
+
+        // Pruefen ob Profil-Felder bereits gesetzt sind (write-once policy).
+        const { data: existingShort } = await supabase
+          .from("company_short")
+          .select("address")
+          .eq("company_id", companyId)
+          .maybeSingle();
+        const profileAlreadySet = !!existingShort?.address;
+
+        const profilePayload = !profileAlreadySet && Object.keys(profileFields).length > 0
+          ? { ...profileFields, sources }
+          : {};
+
         const { error: csErr } = await supabase.from("company_short").upsert(
           {
             company_id: companyId,
             ...intelPayload,
+            ...profilePayload,
             tokens_in: result.usage.tokens_in,
             tokens_out: result.usage.tokens_out,
             firecrawl_credits: firecrawlCredits,

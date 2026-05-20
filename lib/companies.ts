@@ -1,6 +1,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CompanyChatContext } from "./claude";
 
+export type CompanyAddress = {
+  street?: string;
+  postcode?: string;
+  city?: string;
+  country?: string;
+};
+
+export type ContactPerson = {
+  name?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+};
+
+export type SourceRef = {
+  type: "algolia" | "messe_profil" | "messe_profil_scrape" | "website" | "web_search";
+  label: string;
+  url?: string;
+};
+
 export type CompanyShortRow = {
   one_liner: string | null;
   priority_label: string | null;
@@ -14,6 +34,20 @@ export type CompanyShortRow = {
   tokens_in: number | null;
   tokens_out: number | null;
   updated_at: string | null;
+  // Profile fields (populated from profile_data, write-once)
+  address: CompanyAddress | null;
+  email: string | null;
+  phone: string | null;
+  company_type: string | null;
+  slogan: string | null;
+  categories: string[] | null;
+  products: string[] | null;
+  contact_persons: ContactPerson[] | null;
+  co_exhibitors: string[] | null;
+  company_description: string | null;
+  logo_url: string | null;
+  employee_estimate: string | null;
+  sources: Record<string, SourceRef> | null;
 };
 
 export type CompanyDeepRow = {

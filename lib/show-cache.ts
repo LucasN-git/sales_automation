@@ -187,7 +187,7 @@ export function getCachedCompanyIntel(companyId: string): Promise<CachedCompanyI
         supabase
           .from("company_short")
           .select(
-            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, tokens_in, tokens_out, updated_at",
+            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, tokens_in, tokens_out, updated_at, address, email, phone, company_type, slogan, categories, products, contact_persons, co_exhibitors, company_description, logo_url, employee_estimate, sources",
           )
           .eq("company_id", companyId)
           .maybeSingle(),

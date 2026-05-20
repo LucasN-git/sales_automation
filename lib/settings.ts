@@ -59,6 +59,11 @@ export type AppSettings = {
   show_discovery_system_prompt: string | null;
   show_discovery_max_web_searches: number | null;
   show_discovery_max_tokens: number | null;
+  // Company Search. NULL = Code-Default.
+  company_search_system_prompt: string | null;
+  company_search_model: string | null;
+  company_search_max_tokens: number | null;
+  company_search_max_web_searches: number | null;
   /**
    * User-Anleitung als Markdown. Wird NICHT in den Default-System-Prompts
    * mitgeschickt — die Orchestrator-Chats laden sie per `read_handbook`-Tool
@@ -404,7 +409,9 @@ type PromptField =
   | "deep_system_prompt"
   | "deep_user_template"
   | "chat_system_prompt"
-  | "show_discovery_system_prompt";
+  | "show_discovery_system_prompt"
+  | "competitor_discovery_system_prompt"
+  | "company_search_system_prompt";
 
 export async function updatePrompts(
   supabase: SupabaseClient,
@@ -482,13 +489,13 @@ export function effectiveShowDiscovery(s: AppSettings) {
 
 /**
  * Effektive Settings fuer den Company-Search-Inngest-Worker.
- * Modell ist immer Opus 4.7.
  */
 export function effectiveCompanySearch(s: AppSettings) {
   return {
-    system_prompt: (s as any).company_search_system_prompt ?? null,
-    max_tokens: (s as any).company_search_max_tokens ?? 8000,
-    max_web_searches: (s as any).company_search_max_web_searches ?? 10,
+    model: s.company_search_model ?? "claude-opus-4-7",
+    system_prompt: s.company_search_system_prompt ?? null,
+    max_tokens: s.company_search_max_tokens ?? 8000,
+    max_web_searches: s.company_search_max_web_searches ?? 10,
   };
 }
 

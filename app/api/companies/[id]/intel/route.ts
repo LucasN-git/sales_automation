@@ -13,6 +13,19 @@ const SHORT_FIELDS = new Set([
   "battery_need",
   "drone_relevance",
   "service_need",
+  // Profile fields (editable inline)
+  "address",
+  "email",
+  "phone",
+  "company_type",
+  "slogan",
+  "categories",
+  "products",
+  "contact_persons",
+  "co_exhibitors",
+  "company_description",
+  "logo_url",
+  "employee_estimate",
 ]);
 
 const DEEP_FIELDS = new Set([

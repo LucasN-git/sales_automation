@@ -5,6 +5,7 @@ import { ChatScopeBinding } from "@/components/chat/ChatScopeProvider";
 import { HelpRequestButton } from "@/components/HelpRequestButton";
 import { ArrowRight } from "@/components/brand/Icons";
 import { GoldDot } from "@/components/brand/GoldDot";
+import { OpenSettingsButton } from "@/components/OpenSettingsButton";
 import { NewDiscoveryForm } from "./NewDiscoveryForm";
 import { RunRowActions } from "./RunRowActions";
 
@@ -68,12 +69,18 @@ export default async function ShowSearchPage() {
           Claude Opus 4.7 plus Web-Search findet systematisch relevante Industriemessen.
           Firecrawl validiert jede URL. Du entscheidest, welche zur Messeliste hinzugefuegt werden.
         </p>
-        <div className="mt-4">
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
           <HelpRequestButton
             source="show-discovery"
             label="Messen-Suche"
             context={`Laeufe gesamt: ${runs.length}\nAktiv: ${activeRuns.length}`}
           />
+          <OpenSettingsButton
+            tab="messen"
+            className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-near-black)] hover:border-[var(--color-near-black)]/40 transition-colors"
+          >
+            kontext anzeigen
+          </OpenSettingsButton>
         </div>
       </header>
 

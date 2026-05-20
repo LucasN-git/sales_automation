@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AppSettings } from "@/lib/settings";
 import type { UserProfile } from "@/lib/profile";
 import { AccountDrawer } from "./AccountDrawer";
+import type { AccountDrawerTab } from "./OpenSettingsButton";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -20,11 +21,22 @@ export function AccountCard({
   settings: AppSettings;
 }) {
   const [open, setOpen] = useState(false);
+  const [initialTab, setInitialTab] = useState<AccountDrawerTab | undefined>(undefined);
+
+  useEffect(() => {
+    function handleOpenDrawer(e: Event) {
+      const tab = (e as CustomEvent<{ tab: AccountDrawerTab }>).detail?.tab;
+      setInitialTab(tab);
+      setOpen(true);
+    }
+    window.addEventListener("open-account-drawer", handleOpenDrawer);
+    return () => window.removeEventListener("open-account-drawer", handleOpenDrawer);
+  }, []);
 
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { setInitialTab(undefined); setOpen(true); }}
         className="w-full text-left flex items-center gap-3 px-3 py-3 border-t border-[var(--border-color-soft)] hover:bg-[var(--color-near-black)]/[0.03] transition-colors"
       >
         <span
@@ -52,6 +64,7 @@ export function AccountCard({
         onClose={() => setOpen(false)}
         profile={profile}
         settings={settings}
+        initialTab={initialTab}
       />
     </>
   );

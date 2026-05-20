@@ -41,14 +41,23 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/auth") ||
     path.startsWith("/api/inngest") ||
     path.startsWith("/api/dev-login") ||
+    path.startsWith("/api/dev-auto-login") ||
     path.startsWith("/api/dev-set-session") ||
     path.startsWith("/_next") ||
     path === "/favicon.ico";
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
-    url.pathname =
-      process.env.NODE_ENV === "development" ? "/api/dev-login" : "/login";
+    const devBypass =
+      process.env.DEV_BYPASS_AUTH === "true" && process.env.NODE_ENV !== "production";
+    if (devBypass) {
+      url.pathname = "/api/dev-auto-login";
+      url.searchParams.set("next", path);
+    } else if (process.env.NODE_ENV === "development") {
+      url.pathname = "/api/dev-login";
+    } else {
+      url.pathname = "/login";
+    }
     return NextResponse.redirect(url);
   }
 

@@ -4,6 +4,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { ChatScopeBinding } from "@/components/chat/ChatScopeProvider";
 import { ArrowRight } from "@/components/brand/Icons";
 import { GoldDot } from "@/components/brand/GoldDot";
+import { OpenSettingsButton } from "@/components/OpenSettingsButton";
 import { NewSearchForm } from "./NewSearchForm";
 import { SearchRunRowActions } from "./SearchRunRowActions";
 
@@ -68,6 +69,14 @@ export default async function CompanySearchPage() {
           Systems Batterie- und Antriebssysteme. Firecrawl und Haiku erstellen ein Short-Overview
           pro Kandidat.
         </p>
+        <div className="mt-4">
+          <OpenSettingsButton
+            tab="unternehmen"
+            className="inline-flex items-center gap-1.5 text-ui-sm px-3 py-1.5 border border-[var(--border-color-soft)] text-[var(--color-near-black)]/60 hover:text-[var(--color-near-black)] hover:border-[var(--color-near-black)]/40 transition-colors"
+          >
+            kontext anzeigen
+          </OpenSettingsButton>
+        </div>
       </header>
 
       <NewSearchForm />
