@@ -1,5 +1,5 @@
 import type { LetterLoopPlanT } from "@/lib/crawl-plan";
-import type { ExhibitorListing } from "@/lib/firecrawl";
+import type { ExhibitorListing } from "@/lib/scraper";
 import { withSession, acceptCookies } from "@/lib/browserbase";
 import {
   autoScrollUntilStall,

@@ -31,6 +31,14 @@ const SHOW_SEARCH_RUN_VIEWS: { id: ShowSearchRunView; label: string }[] = [
   { id: "kosten", label: "Kosten" },
 ];
 
+type CompanySearchRunView = "ergebnisse" | "log" | "kosten";
+
+const COMPANY_SEARCH_RUN_VIEWS: { id: CompanySearchRunView; label: string }[] = [
+  { id: "ergebnisse", label: "Ergebnisse" },
+  { id: "log", label: "Log" },
+  { id: "kosten", label: "Kosten" },
+];
+
 type CompetitorDetailView = "intel" | "verlauf" | "kunden" | "einstellungen";
 
 const COMPETITOR_DETAIL_VIEWS: { id: CompetitorDetailView; label: string }[] = [
@@ -57,10 +65,18 @@ function parseShowSearchRunId(pathname: string | null): string | null {
   return m ? m[1] : null;
 }
 
+function parseCompanySearchRunId(pathname: string | null): string | null {
+  if (!pathname) return null;
+  const m = pathname.match(/^\/companies\/search\/runs\/([^/]+)/);
+  return m ? m[1] : null;
+}
+
 function parseCompanyId(pathname: string | null): string | null {
   if (!pathname) return null;
   const m = pathname.match(/^\/companies\/([^/]+)/);
-  return m ? m[1] : null;
+  const id = m ? m[1] : null;
+  if (!id || id === "search") return null;
+  return id;
 }
 
 function parseDiscoveryRunId(pathname: string | null): string | null {
@@ -86,6 +102,7 @@ export function SidebarContextSection({
   onNavigate?: () => void;
 } = {}) {
   const pathname = usePathname();
+  const companySearchRunId = parseCompanySearchRunId(pathname);
   const showSearchRunId = parseShowSearchRunId(pathname);
   const showId = parseShowId(pathname);
   const companyId = parseCompanyId(pathname);
@@ -93,12 +110,12 @@ export function SidebarContextSection({
   const competitorId = parseCompetitorId(pathname);
 
   // Order matters: more specific routes first.
+  if (companySearchRunId) return <CompanySearchRunContextNav runId={companySearchRunId} onNavigate={onNavigate} />;
   if (showSearchRunId) return <ShowSearchRunContextNav runId={showSearchRunId} onNavigate={onNavigate} />;
   if (showId) return <ShowContextNav showId={showId} pathname={pathname ?? ""} onNavigate={onNavigate} />;
   if (companyId) return <CompanyContextNav onNavigate={onNavigate} />;
   if (runId) return <DiscoveryRunContextNav runId={runId} onNavigate={onNavigate} />;
   if (competitorId) return <CompetitorDetailContextNav competitorId={competitorId} onNavigate={onNavigate} />;
-  // /shows/search list page and /competitors list page have no sidebar tabs.
   return null;
 }
 
@@ -305,6 +322,55 @@ function DiscoveryRunContextNav({
             v.id === "prozess"
               ? `/competitors/runs/${runId}`
               : `/competitors/runs/${runId}?view=${v.id}`;
+          return (
+            <li key={v.id}>
+              <NavLink
+                href={href}
+                onClick={onNavigate}
+                className={`block px-3 py-1.5 text-body-sm transition-colors border-l-2 ${
+                  active
+                    ? "border-[var(--color-near-black)] text-[var(--color-near-black)] font-semibold"
+                    : "border-transparent text-[var(--color-near-black)]/65 hover:text-[var(--color-near-black)]"
+                }`}
+              >
+                {v.label}
+              </NavLink>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function CompanySearchRunContextNav({
+  runId,
+  onNavigate,
+}: {
+  runId: string;
+  onNavigate?: () => void;
+}) {
+  const searchParams = useSearchParams();
+  const activeView =
+    (searchParams.get("view") as CompanySearchRunView | null) ?? "ergebnisse";
+
+  return (
+    <div className="px-3 py-3 border-t border-[var(--border-color-soft)]">
+      <NavLink
+        href="/companies/search"
+        onClick={onNavigate}
+        className="block px-3 py-1.5 text-meta hover:text-[var(--color-near-black)] transition-colors"
+      >
+        &larr; zur Lauf-Liste
+      </NavLink>
+
+      <ul className="mt-2 space-y-0">
+        {COMPANY_SEARCH_RUN_VIEWS.map((v) => {
+          const active = activeView === v.id;
+          const href =
+            v.id === "ergebnisse"
+              ? `/companies/search/runs/${runId}`
+              : `/companies/search/runs/${runId}?view=${v.id}`;
           return (
             <li key={v.id}>
               <NavLink

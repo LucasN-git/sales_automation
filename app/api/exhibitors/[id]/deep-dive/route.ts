@@ -24,12 +24,18 @@ export async function POST(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  // Mark as pending so the UI shows it's queued.
   const admin = createServiceRoleClient();
-  await admin
+
+  // exhibitor + company beide auf pending setzen.
+  await admin.from("exhibitors").update({ deep_status: "pending" }).eq("id", id);
+  const { data: ex } = await admin
     .from("exhibitors")
-    .update({ deep_status: "pending" })
-    .eq("id", id);
+    .select("company_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (ex?.company_id) {
+    await admin.from("companies").update({ deep_status: "pending" }).eq("id", ex.company_id);
+  }
 
   await inngest.send({
     name: "exhibitor.deep.requested",

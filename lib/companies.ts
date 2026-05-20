@@ -1,6 +1,36 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CompanyChatContext } from "./claude";
 
+export type CompanyShortRow = {
+  one_liner: string | null;
+  priority_label: string | null;
+  match_confidence: number | null;
+  isp_sector_match: string[];
+  reasoning_bullets: string | null;
+  user_group: string | null;
+  battery_need: string | null;
+  drone_relevance: string | null;
+  service_need: string[];
+  tokens_in: number | null;
+  tokens_out: number | null;
+  updated_at: string | null;
+};
+
+export type CompanyDeepRow = {
+  business_summary: string | null;
+  decision_makers: string | null;
+  recent_news: string | null;
+  technical_pain_points: string | null;
+  opening_questions: string | null;
+  competition_context: string | null;
+  isp_lifecycle_match: string[];
+  isp_service_fit: string | null;
+  full_reasoning: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  updated_at: string | null;
+};
+
 // Legal-Entity-Suffixe, die wir beim Vergleich strippen, damit
 // "Bosch GmbH" und "Bosch" als dieselbe Firma matchen.
 // Muss in Sync gehalten werden mit der Migration 0010_companies.sql

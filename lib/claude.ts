@@ -257,7 +257,7 @@ Nur Test-Bedarf: [prototyping]
 3-6 Bullets als Markdown-Liste ('- '). Jeder Bullet ist GENAU EIN kurzer Satz (max 15 Woerter), kein Komma-Ketten-Satz. Am Ende jedes Bullets steht ein Quellen-Tag in eckigen Klammern.
 
 Erlaubte Tags:
-- [Website] — Information stammt aus dem Firecrawl-Scrape der Firmen-Website
+- [Website] — Information stammt aus dem Website-Scrape der Firmen-Website
 - [Web-Suche] — Information stammt aus einer web_search-Anfrage
 - [Messe-Profil] — Information stammt aus den Veranstalter-Stammdaten (Kategorien, Beschreibung, Adresse)
 - [Claude-Wissen] — allgemeines Branchenwissen, kein spezifischer Beleg

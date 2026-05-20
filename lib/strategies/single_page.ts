@@ -1,5 +1,5 @@
 import type { SinglePagePlanT } from "@/lib/crawl-plan";
-import type { ExhibitorListing } from "@/lib/firecrawl";
+import type { ExhibitorListing } from "@/lib/scraper";
 import { mergeBatch, scrapeExhibitorPage, type StrategyProgress } from "./shared";
 
 export async function executeSinglePage(

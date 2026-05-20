@@ -6,13 +6,13 @@ type Phase =
   | "preparing_prompt"
   | "claude_research"
   | "persisting"
-  | "firecrawl_validation"
+  | "scrape_validation"
   | "done"
   | "failed"
   | "web_search"
   | "claude_submit"
-  | "firecrawl_start"
-  | "firecrawl_done"
+  | "scrape_start"
+  | "scrape_done"
   | string;
 
 export async function appendShowDiscoveryLog(

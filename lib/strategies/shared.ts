@@ -1,13 +1,4 @@
-import FirecrawlApp from "@mendable/firecrawl-js";
-import { ExhibitorListSchema, type ExhibitorListing } from "@/lib/firecrawl";
-
-let _app: FirecrawlApp | null = null;
-export function fc() {
-  if (!_app) {
-    _app = new FirecrawlApp({ apiKey: process.env.FIRECRAWL_API_KEY! });
-  }
-  return _app;
-}
+import { ExhibitorListSchema, type ExhibitorListing, fetchRawHtml, fetchSiteJina, getExhibitorList } from "@/lib/scraper";
 
 export const EXHIBITOR_EXTRACTION_PROMPT = `Extract every exhibiting company that appears in the result list on this page. For each, return:
 - name: official company name (no booth/country/industry suffix)
@@ -187,24 +178,14 @@ export function parseMarkdownExhibitorTable(markdown: string): ExhibitorListing[
 }
 
 /**
- * Standard Firecrawl scrape with our exhibitor JSON-Schema. Returns parsed list
- * or empty array on any failure (caller decides how to react).
+ * Scrape an exhibitor listing page and return structured entries.
  *
- * Firecrawl Free-Tier defaults to 30s timeout. With many click-actions we hit
- * that easily, so we set an explicit `timeout`. On Free this is capped server
- * side; Pro plans accept higher values.
+ * When `detailPathPrefix` is supplied: fetches raw HTML, then deterministically
+ * extracts all <a> links matching the prefix (no LLM, no external credits).
  *
- * When `detailPathPrefix` is supplied, the function takes a much faster &
- * cheaper path: rawHtml + deterministic regex extraction of all <a> links
- * matching the prefix. No LLM-extraction, no "sometimes 0 items" drift, 1
- * Firecrawl credit instead of 5. Use this whenever the Discovery phase has
- * identified a stable detail-page URL pattern.
- *
- * For static pages without a detailPathPrefix: tries markdown scrape + table
- * parsing first (deterministic, captures full tables of any size). Falls back
- * to JSON LLM-extraction only when no markdown table is found — the LLM path
- * is reliable for card-grid layouts but caps internally around 50-80 rows for
- * large tables.
+ * Without a prefix: tries Jina Reader + markdown table parsing first
+ * (deterministic). Falls back to Jina + Claude Haiku extraction for card-grid
+ * layouts where no table structure is present.
  */
 export async function scrapeExhibitorPage(
   url: string,
@@ -217,16 +198,7 @@ export async function scrapeExhibitorPage(
 ): Promise<ExhibitorListing[]> {
   if (opts.detailPathPrefix) {
     try {
-      const result: any = await fc().scrapeUrl(url, {
-        formats: ["rawHtml"],
-        onlyMainContent: false,
-        waitFor: opts.waitFor ?? 2500,
-        timeout: opts.timeoutMs ?? 30_000,
-        ...(opts.actions ? { actions: opts.actions } : {}),
-      });
-      if (!result?.success) return [];
-      const html: string =
-        result.rawHtml ?? result.data?.rawHtml ?? result.html ?? result.data?.html ?? "";
+      const html = await fetchRawHtml(url);
       if (!html) return [];
       return extractExhibitorLinksFromHtml(html, opts.detailPathPrefix, url);
     } catch {
@@ -234,51 +206,19 @@ export async function scrapeExhibitorPage(
     }
   }
 
-  // --- Primary path: markdown scrape + deterministic table parser ---
-  // Handles static HTML pages with <table> or markdown-table structures.
-  // Captures full lists of any size; costs 1 Firecrawl credit.
-  if (!opts.actions) {
-    try {
-      const mdResult: any = await fc().scrapeUrl(url, {
-        formats: ["markdown"],
-        onlyMainContent: true,
-        waitFor: opts.waitFor ?? 2500,
-        timeout: opts.timeoutMs ?? 30_000,
-      });
-      if (mdResult?.success) {
-        const markdown: string =
-          mdResult.markdown ?? mdResult.data?.markdown ?? "";
-        const tableRows = parseMarkdownExhibitorTable(markdown);
-        if (tableRows.length >= 5) return tableRows;
-      }
-    } catch {
-      // fall through to JSON extraction
+  // Primary path: Jina markdown + deterministic table parser
+  try {
+    const markdown = await fetchSiteJina(url, 20_000);
+    if (markdown) {
+      const tableRows = parseMarkdownExhibitorTable(markdown);
+      if (tableRows.length >= 5) return tableRows;
     }
+  } catch {
+    // fall through to Claude extraction
   }
 
-  // --- Fallback path: Firecrawl JSON LLM-extraction ---
-  // Best for card-grid / list layouts without a table structure.
-  try {
-    const result: any = await fc().scrapeUrl(url, {
-      formats: ["json"],
-      jsonOptions: {
-        schema: ExhibitorListSchema,
-        prompt: EXHIBITOR_EXTRACTION_PROMPT,
-      },
-      onlyMainContent: false,
-      waitFor: opts.waitFor ?? 2500,
-      timeout: opts.timeoutMs ?? 60_000,
-      ...(opts.actions ? { actions: opts.actions } : {}),
-    });
-    if (!result?.success) return [];
-    const json = result.json ?? result.data?.json;
-    if (!json) return [];
-    const parsed = ExhibitorListSchema.safeParse(json);
-    if (!parsed.success) return [];
-    return parsed.data.exhibitors as ExhibitorListing[];
-  } catch {
-    return [];
-  }
+  // Fallback: Jina + Claude Haiku extraction (card-grid layouts)
+  return getExhibitorList(url);
 }
 
 /**
@@ -326,10 +266,8 @@ export async function autoScrollUntilStall(
 }
 
 /**
- * Single-call show-more scraping: one Firecrawl session, hits Show-more up to
- * `capClicks` times, snapshots once. Much more efficient than reloading the
- * page on every iteration — Firecrawl performs all clicks in the same browser
- * tab, the list grows incrementally, then the final DOM is extracted.
+ * Show-more scraping: single-pass via Jina Reader.
+ * Pages that genuinely need real clicks should use the browserbase engine instead.
  */
 export async function scrapeWithShowMoreLoop(
   url: string,
@@ -337,15 +275,6 @@ export async function scrapeWithShowMoreLoop(
   capClicks: number,
   onProgress: StrategyProgress,
 ): Promise<ExhibitorListing[]> {
-  // Single-pass strategy. We intentionally DO NOT use click-actions here:
-  // Firecrawl-style synthetic clicks on Algolia/React InstantSearch widgets
-  // either navigate away (hitting a wrapper card link via event-bubbling) or
-  // are no-ops because the React listener checks event.isTrusted. Both modes
-  // result in 0 exhibitors for the page. Single-pass guarantees the initial
-  // ~10 visible items at minimum.
-  //
-  // For sites that genuinely need pagination we'll add a per-site adapter or
-  // direct Algolia-API client in V4 — see CLAUDE.md.
   await onProgress(`single_pass_start`);
   const batch = await scrapeExhibitorPage(url, {
     waitFor: 3500,

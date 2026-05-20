@@ -7,13 +7,13 @@ const STEP_LABELS: Record<string, string> = {
   discovering: "Claude analysiert Site-Struktur",
   fetching_list: "Aussteller-Liste von URL holen",
   inserting_exhibitors: "Aussteller in DB schreiben",
-  scraping: "Firecrawl: Website laden",
+  scraping: "Scraper: Website laden",
   analyzing: "Claude: Match analysieren",
   saving: "Ergebnisse speichern",
-  deep_scraping: "Firecrawl: Website (Deep)",
+  deep_scraping: "Scraper: Website (Deep)",
   deep_analyzing: "Claude: Deep-Analyse",
-  scraping_single_page: "Firecrawl: Einzelseite laden",
-  clicking_show_more: "Firecrawl: Show-more klicken",
+  scraping_single_page: "Scraper: Einzelseite laden",
+  clicking_show_more: "Scraper: Show-more klicken",
 };
 
 function stepLabel(s: string | null | undefined): string | undefined {

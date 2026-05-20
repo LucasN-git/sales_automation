@@ -85,6 +85,12 @@ export default async function CompaniesPage({
         </div>
         <div className="mt-6 flex items-center gap-3 flex-wrap">
           <AddCompanyForm />
+          <a
+            href="/companies/search"
+            className="inline-flex items-center gap-2 px-3 py-3 text-ui font-semibold bg-transparent border border-[var(--color-near-black)] rounded-md text-[var(--color-near-black)] hover:text-[var(--color-gold)] hover:scale-[1.03] transition-all duration-150 origin-center"
+          >
+            unternehmen suchen
+          </a>
           {totalCount > 0 && (
             <a
               href="/api/companies/export"

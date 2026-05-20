@@ -28,16 +28,23 @@ export async function POST(
 
   const admin = createServiceRoleClient();
 
+  // exhibitor_short loeschen.
   await admin.from("exhibitor_short").delete().eq("exhibitor_id", id);
-
   await admin
     .from("exhibitors")
-    .update({
-      borrowed_short_from_exhibitor_id: null,
-      short_status: "pending",
-      current_step: null,
-    })
+    .update({ borrowed_short_from_exhibitor_id: null, short_status: "pending", current_step: null })
     .eq("id", id);
+
+  // company_short loeschen + companies.short_status zuruecksetzen.
+  const { data: ex } = await admin
+    .from("exhibitors")
+    .select("company_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (ex?.company_id) {
+    await admin.from("company_short").delete().eq("company_id", ex.company_id);
+    await admin.from("companies").update({ short_status: "pending" }).eq("id", ex.company_id);
+  }
 
   await inngest.send({
     name: "exhibitor.short.requested",

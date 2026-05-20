@@ -41,69 +41,62 @@ export async function GET() {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
 
-  // Load companies overview + best exhibitor_short/deep data per company.
-  // We join via exhibitors to get per-company best short/deep intel.
+  // companies_overview liefert best_one_liner etc. direkt aus company_short (seit Migration 0043).
   const { data: companies } = await supabase
-    .from("companies_overview")
-    .select("*")
-    .order("best_match_confidence", { ascending: false });
+    .from("companies")
+    .select(`
+      id, display_name, website,
+      short_status, deep_status,
+      company_short(one_liner, priority_label, match_confidence, isp_sector_match,
+                    user_group, battery_need, drone_relevance, service_need),
+      company_deep(business_summary, decision_makers, recent_news, technical_pain_points,
+                   opening_questions, competition_context, isp_service_fit, full_reasoning)
+    `)
+    .order("id");
 
   if (!companies || companies.length === 0) {
     return NextResponse.json({ error: "no companies found" }, { status: 404 });
   }
 
-  // For each company, load the best short+deep row (highest match_confidence).
+  // show_count + shows pro company
   const companyIds = companies.map((c) => c.id);
-  const { data: exhibitorRows } = await supabase
+  const { data: showLinks } = await supabase
     .from("exhibitors")
-    .select(
-      `company_id,
-       exhibitor_short(one_liner, priority_label, match_confidence, isp_sector_match, user_group, battery_need, drone_relevance, service_need),
-       exhibitor_deep(business_summary, decision_makers, recent_news, technical_pain_points, opening_questions, competition_context, isp_service_fit, full_reasoning)`,
-    )
-    .in("company_id", companyIds)
-    .not("exhibitor_short", "is", null);
+    .select("company_id, trade_shows(name)")
+    .in("company_id", companyIds);
 
-  // Group exhibitors by company_id, pick the one with highest match_confidence.
-  const bestByCompany = new Map<string, { short: Record<string, unknown>; deep: Record<string, unknown> | null }>();
-  for (const ex of exhibitorRows ?? []) {
+  const showsByCompany = new Map<string, Set<string>>();
+  for (const ex of showLinks ?? []) {
     if (!ex.company_id) continue;
-    const s = ex.exhibitor_short as unknown as Record<string, unknown> | null;
-    if (!s) continue;
-    const conf = (s.match_confidence as number) ?? 0;
-    const existing = bestByCompany.get(ex.company_id);
-    const existingConf = existing ? ((existing.short.match_confidence as number) ?? 0) : -1;
-    if (conf > existingConf) {
-      bestByCompany.set(ex.company_id, {
-        short: s,
-        deep: ex.exhibitor_deep as unknown as Record<string, unknown> | null,
-      });
-    }
+    const name = Array.isArray(ex.trade_shows)
+      ? (ex.trade_shows[0] as { name: string } | null)?.name
+      : (ex.trade_shows as { name: string } | null)?.name;
+    if (!name) continue;
+    if (!showsByCompany.has(ex.company_id)) showsByCompany.set(ex.company_id, new Set());
+    showsByCompany.get(ex.company_id)!.add(name);
   }
 
   const rows = companies.map((c) => {
-    const best = bestByCompany.get(c.id);
-    const s = best?.short ?? {};
-    const d = best?.deep ?? {};
+    const s = (Array.isArray(c.company_short) ? c.company_short[0] : c.company_short) as Record<string, unknown> | null ?? {};
+    const d = (Array.isArray(c.company_deep) ? c.company_deep[0] : c.company_deep) as Record<string, unknown> | null ?? {};
+    const showNames = [...(showsByCompany.get(c.id) ?? [])].join(", ");
     return {
-      company_name: c.display_name ?? c.normalized_name ?? "",
+      company_name: c.display_name ?? "",
       website: c.website ?? "",
-      shows: Array.isArray(c.show_names) ? c.show_names.join(", ") : "",
-      show_count: c.show_count ?? 1,
+      shows: showNames,
+      show_count: showsByCompany.get(c.id)?.size ?? 0,
       user_group: (s.user_group as string) ?? "",
       battery_need: (s.battery_need as string) ?? "",
-      priority_label: (s.priority_label as string) ?? (c.best_priority as string) ?? "",
-      match_confidence: (s.match_confidence as number) ?? (c.best_match_confidence as number) ?? 0,
+      priority_label: (s.priority_label as string) ?? "",
+      match_confidence: (s.match_confidence as number) ?? 0,
       drone_relevance: (s.drone_relevance as string) ?? "",
       isp_sector_match: Array.isArray(s.isp_sector_match)
         ? (s.isp_sector_match as string[]).join(", ")
-        : Array.isArray(c.union_sectors)
-          ? (c.union_sectors as string[]).join(", ")
-          : "",
+        : "",
       service_need: Array.isArray(s.service_need)
         ? (s.service_need as string[]).join(", ")
         : "",
-      one_liner: (s.one_liner as string) ?? (c.best_one_liner as string) ?? "",
+      one_liner: (s.one_liner as string) ?? "",
       business_summary: (d.business_summary as string) ?? "",
       decision_makers: (d.decision_makers as string) ?? "",
       recent_news: (d.recent_news as string) ?? "",

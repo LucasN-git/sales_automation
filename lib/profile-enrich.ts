@@ -1,114 +1,158 @@
-import FirecrawlApp from "@mendable/firecrawl-js";
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { fetchSiteJina } from "@/lib/scraper";
 
-let _app: FirecrawlApp | null = null;
-function fc() {
-  if (!_app) {
-    _app = new FirecrawlApp({ apiKey: process.env.FIRECRAWL_API_KEY! });
-  }
-  return _app;
+let _client: Anthropic | null = null;
+function profileClient() {
+  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  return _client;
 }
 
-/**
- * Loose schema for what we want from a per-exhibitor trade-show profile page.
- * Different organisers (NürnbergMesse, Messe Frankfurt, Messe München) lay
- * these out differently, so we let Firecrawl's LLM-extraction do the matching
- * and we treat every field as optional.
- */
 export const ProfileScrapeSchema = z.object({
-  external_website: z
-    .string()
-    .nullable()
-    .optional()
-    .describe(
-      "The exhibitor's OWN external website (e.g. https://example.com), NOT the trade-show profile page itself. Look for a 'Website' link, often with a globe icon. Return null if no external link is shown.",
-    ),
-  phone: z
-    .string()
-    .nullable()
-    .optional()
-    .describe("Primary phone number if listed (any format), otherwise null."),
-  email: z
-    .string()
-    .nullable()
-    .optional()
-    .describe("Primary contact email if listed, otherwise null."),
-  description_long: z
-    .string()
-    .nullable()
-    .optional()
-    .describe(
-      "Long-form company description / 'About us' text from the profile page if present. Return as-is, no editing. Null if absent.",
-    ),
-  products_offered: z
-    .array(z.string())
-    .nullable()
-    .optional()
-    .describe(
-      "List of products / services / offerings shown under headings like 'We offer', 'Products', 'Services'. Up to 30 entries. Null or empty if absent.",
-    ),
-  contact_persons: z
-    .array(z.string())
-    .nullable()
-    .optional()
-    .describe(
-      "Named contact persons / managers shown on the page (with role if given, e.g. 'Jane Doe, Head of Sales'). Up to 10. Null if absent.",
-    ),
+  external_website: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  description_long: z.string().nullable().optional(),
+  products_offered: z.array(z.string()).nullable().optional(),
+  contact_persons: z.array(z.string()).nullable().optional(),
 });
 
 export type ProfileScrape = z.infer<typeof ProfileScrapeSchema>;
 
+const SOCIAL_DOMAINS = new Set([
+  "linkedin.com", "twitter.com", "x.com", "facebook.com",
+  "instagram.com", "youtube.com", "xing.com", "tiktok.com",
+]);
+
+function isSocialOrSameDomain(linkUrl: string, profileUrl: string): boolean {
+  try {
+    const d = new URL(linkUrl).hostname.replace(/^www\./, "");
+    const p = new URL(profileUrl).hostname.replace(/^www\./, "");
+    return d === p || SOCIAL_DOMAINS.has(d);
+  } catch {
+    return true;
+  }
+}
+
 /**
- * Scrape a single per-exhibitor profile page and extract the fields we care
- * about. Tolerant of missing fields — most pages won't have all of them.
+ * Extract the exhibitor's own external website from Jina markdown.
+ * Prefers links labeled "Website"/"Web"/"Homepage", falls back to first
+ * external non-social link.
+ */
+function extractExternalWebsite(markdown: string, profileUrl: string): string | null {
+  const profileDomain = new URL(profileUrl).hostname.replace(/^www\./, "");
+
+  // Priority: link immediately following a "Website" keyword
+  const websiteKeywordRe =
+    /(?:website|web site|homepage|web)[^[\n]{0,30}\[(.*?)\]\((https?:\/\/[^)]+)\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = websiteKeywordRe.exec(markdown)) !== null) {
+    const candidate = m[2];
+    if (!isSocialOrSameDomain(candidate, profileUrl)) return candidate;
+  }
+
+  // Fallback: first external non-social http(s) link in the markdown
+  const anyLinkRe = /\[.*?\]\((https?:\/\/[^)]+)\)/g;
+  while ((m = anyLinkRe.exec(markdown)) !== null) {
+    const candidate = m[1];
+    try {
+      const d = new URL(candidate).hostname.replace(/^www\./, "");
+      if (d !== profileDomain && !SOCIAL_DOMAINS.has(d)) return candidate;
+    } catch {
+      // skip
+    }
+  }
+
+  return null;
+}
+
+const PROFILE_FIELDS_TOOL_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    phone: {
+      type: ["string", "null"] as unknown as "string",
+      description: "Primary phone number if listed (any format), otherwise null.",
+    },
+    description_long: {
+      type: ["string", "null"] as unknown as "string",
+      description: "Long-form company description / 'About us' text. Return as-is. Null if absent.",
+    },
+    products_offered: {
+      type: "array",
+      items: { type: "string" },
+      description: "Products / services listed under headings like 'We offer', 'Products', 'Services'. Up to 30 entries.",
+    },
+    contact_persons: {
+      type: "array",
+      items: { type: "string" },
+      description: "Named contact persons with role if given (e.g. 'Jane Doe, Head of Sales'). Up to 10.",
+    },
+  },
+};
+
+/**
+ * Scrape a single per-exhibitor profile page and extract the fields we care about.
+ * Uses Jina Reader for content, regex for external_website + email, Claude Haiku
+ * for the remaining fields.
  *
- * Returns null on hard failure (network, 5xx, etc) so callers can mark the
- * row failed without losing the existing profile_data.
+ * Returns null on hard failure so callers can mark the row failed.
  */
 export async function scrapeExhibitorProfile(
   url: string,
 ): Promise<ProfileScrape | null> {
-  let result: { success: boolean; json?: unknown; error?: string };
+  const markdown = await fetchSiteJina(url, 15_000);
+  if (!markdown || markdown.length < 50) return null;
+
+  // external_website — free, no LLM
+  const external_website = extractExternalWebsite(markdown, url);
+
+  // email — simple regex
+  const emailMatch = markdown.match(/[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}/);
+  const email = emailMatch?.[0] ?? null;
+
+  // Remaining fields via Claude Haiku (~300 tokens, ~0.0002 EUR)
+  let phone: string | null = null;
+  let description_long: string | null = null;
+  let products_offered: string[] | null = null;
+  let contact_persons: string[] | null = null;
+
   try {
-    result = (await fc().scrapeUrl(url, {
-      formats: ["json"],
-      jsonOptions: {
-        schema: ProfileScrapeSchema,
-        prompt:
-          "Extract the per-exhibitor profile fields described in the schema. The page is the trade-show's listing page for ONE exhibiting company. Pay special attention to: (1) the EXTERNAL website link (the exhibitor's own site, often shown as a 'Website' button with a globe icon, NOT the profile page itself, NOT social-media links), (2) phone and email if listed, (3) the 'We offer' / products section, (4) any named contact persons. Return null for fields that are not present.",
-      },
-      onlyMainContent: true,
-      waitFor: 1500,
-    })) as { success: boolean; json?: unknown; error?: string };
-  } catch {
-    return null;
-  }
+    const response = await profileClient().messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 600,
+      messages: [
+        {
+          role: "user",
+          content: `Extract fields from this trade-show exhibitor profile page. Return null for absent fields.\n\n${markdown.slice(0, 8_000)}`,
+        },
+      ],
+      tools: [
+        {
+          name: "extract_profile",
+          description: "Extract profile fields from the exhibitor page.",
+          input_schema: PROFILE_FIELDS_TOOL_SCHEMA,
+        },
+      ],
+      tool_choice: { type: "tool", name: "extract_profile" },
+    });
 
-  if (!result.success || !result.json) return null;
-  const parsed = ProfileScrapeSchema.safeParse(result.json);
-  if (!parsed.success) return null;
-
-  // Normalise external_website to absolute http(s) — drop relative paths and
-  // links that point back to the same trade-show domain (those are profile
-  // links to other exhibitors, not the company's own site).
-  const ext = parsed.data.external_website;
-  if (ext) {
-    if (!/^https?:\/\//i.test(ext)) {
-      parsed.data.external_website = null;
-    } else {
-      try {
-        const own = new URL(ext);
-        const profile = new URL(url);
-        if (own.host === profile.host) {
-          parsed.data.external_website = null;
-        }
-      } catch {
-        parsed.data.external_website = null;
-      }
+    const toolBlock = response.content.find((b) => b.type === "tool_use");
+    if (toolBlock && toolBlock.type === "tool_use") {
+      const inp = toolBlock.input as Record<string, unknown>;
+      phone = typeof inp.phone === "string" ? inp.phone : null;
+      description_long = typeof inp.description_long === "string" ? inp.description_long : null;
+      products_offered = Array.isArray(inp.products_offered)
+        ? (inp.products_offered as string[]).slice(0, 30)
+        : null;
+      contact_persons = Array.isArray(inp.contact_persons)
+        ? (inp.contact_persons as string[]).slice(0, 10)
+        : null;
     }
+  } catch {
+    // Claude call optional — we still return what we extracted for free
   }
 
-  return parsed.data;
+  return { external_website, phone, email, description_long, products_offered, contact_persons };
 }
 
 /**

@@ -18,7 +18,7 @@ const ExhibitorExtractionHints = z.object({
 
 /**
  * Listing engine. Picked by Discovery based on site characteristics:
- * - "firecrawl"       static HTML, single-pass scrape via Firecrawl is enough.
+ * - "jina"            static HTML, single-pass scrape via Jina Reader (free).
  * - "browserbase"     SPA needing real user-clicks (React, Algolia, etc).
  * - "algolia_api"     Algolia InstantSearch; fast path via /browse endpoint
  *                     after sniffing credentials in a 1x Browserbase session.
@@ -34,14 +34,15 @@ const ExhibitorExtractionHints = z.object({
  */
 export const Engine = z
   .enum([
-    "firecrawl",
+    "jina",
+    "firecrawl", // legacy alias — treated identically to "jina"
     "browserbase",
     "algolia_api",
     "dimedis_api",
     "mapyourshow_api",
     "expofp_api",
   ])
-  .default("firecrawl");
+  .default("jina");
 
 const AlgoliaHints = z
   .object({

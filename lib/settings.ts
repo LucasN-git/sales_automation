@@ -481,6 +481,18 @@ export function effectiveShowDiscovery(s: AppSettings) {
 }
 
 /**
+ * Effektive Settings fuer den Company-Search-Inngest-Worker.
+ * Modell ist immer Opus 4.7.
+ */
+export function effectiveCompanySearch(s: AppSettings) {
+  return {
+    system_prompt: (s as any).company_search_system_prompt ?? null,
+    max_tokens: (s as any).company_search_max_tokens ?? 8000,
+    max_web_searches: (s as any).company_search_max_web_searches ?? 10,
+  };
+}
+
+/**
  * Effektives Handbuch: User-Override aus app_settings, sonst Code-Default.
  * Wird vom `read_handbook`-Tool in allen Orchestratoren genutzt — der Inhalt
  * landet ausschliesslich als Tool-Response im Chat, nie im Default-System-Prompt.

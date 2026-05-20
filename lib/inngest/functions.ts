@@ -3,8 +3,9 @@ import { NonRetriableError } from "inngest";
 import { revalidateTag } from "next/cache";
 import { inngest } from "./client";
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { showExhibitorsTag, exhibitorIntelTag } from "@/lib/show-cache";
-import { scrapeCompanySite, scrapeShowSite, mapShowUrl } from "@/lib/firecrawl";
+import { showExhibitorsTag, exhibitorIntelTag, companyIntelTag } from "@/lib/show-cache";
+import { fireWebhooks } from "@/lib/webhooks";
+import { scrapeCompanySite, scrapeShowSite, mapShowUrl } from "@/lib/scraper";
 import {
   enrichShort,
   enrichDeep,
@@ -24,6 +25,12 @@ import { tryAppendLog } from "@/lib/crawl-log";
 import { tryAppendDiscoveryLog, tryAppendCompetitorLog } from "@/lib/competitor-log";
 import { enrichCompetitorShort } from "@/lib/competitor-short";
 import { tryAppendShowDiscoveryLog } from "@/lib/show-discovery-log";
+import { tryAppendCompanySearchLog } from "@/lib/company-search-log";
+import {
+  discoverCompanies,
+  enrichCompanyShort,
+  COMPANY_SEARCH_MODEL,
+} from "@/lib/claude-company-search";
 import {
   getSettingsServiceRole,
   defaultPrioContext,
@@ -31,6 +38,7 @@ import {
   DEEP_MODEL_DEFAULT,
   effectiveCompetitorDiscovery,
   effectiveShowDiscovery,
+  effectiveCompanySearch,
 } from "@/lib/settings";
 import { ensureCompany } from "@/lib/companies";
 import { persistDiscoveryBatch } from "@/lib/competitors/match";
@@ -611,68 +619,43 @@ export const exhibitorShort = inngest.createFunction(
       };
     });
 
-    const borrowed = await step.run("check-existing-short", async () => {
-      const { data: exhibitorWithCompany } = await supabase
+    // Pruefen ob company_short schon existiert (company-level intel ist SSoT).
+    // Wenn ja: exhibitor_short als Mirror schreiben (0 Tokens), done setzen, fertig.
+    const companyShortExists = await step.run("check-existing-short", async () => {
+      const { data: ex } = await supabase
         .from("exhibitors")
         .select("company_id")
         .eq("id", exhibitorId)
         .single();
-      if (!exhibitorWithCompany?.company_id) return null;
+      if (!ex?.company_id) return null;
 
-      const { data: existing } = await supabase
-        .from("exhibitors")
-        .select("id, trade_show_id")
-        .eq("company_id", exhibitorWithCompany.company_id)
-        .eq("short_status", "done")
-        .neq("id", exhibitorId)
-        .limit(1)
+      const { data: cs } = await supabase
+        .from("company_short")
+        .select(
+          "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need",
+        )
+        .eq("company_id", ex.company_id)
         .maybeSingle();
-      if (!existing) return null;
-
-      const [{ data: sourceShort }, { data: sourceShow }] = await Promise.all([
-        supabase
-          .from("exhibitor_short")
-          .select(
-            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need",
-          )
-          .eq("exhibitor_id", existing.id)
-          .maybeSingle(),
-        supabase
-          .from("trade_shows")
-          .select("name, year")
-          .eq("id", existing.trade_show_id)
-          .maybeSingle(),
-      ]);
-      if (!sourceShort) return null;
-
-      const showName = sourceShow
-        ? `${sourceShow.name}${sourceShow.year ? ` ${sourceShow.year}` : ""}`
-        : "andere Messe";
-      return { sourceExhibitorId: existing.id, shortData: sourceShort, showName };
+      if (!cs) return null;
+      return { companyId: ex.company_id, shortData: cs };
     });
 
-    if (borrowed) {
-      await step.run("borrow-short", async () => {
-        const { error } = await supabase.from("exhibitor_short").upsert(
+    if (companyShortExists) {
+      await step.run("mirror-from-company-short", async () => {
+        await supabase.from("exhibitor_short").upsert(
           {
             exhibitor_id: exhibitorId,
-            ...borrowed.shortData,
-            borrowed_from_show_name: borrowed.showName,
+            ...companyShortExists.shortData,
+            borrowed_from_show_name: "unternehmensebene",
             tokens_in: 0,
             tokens_out: 0,
             firecrawl_credits: 0,
           },
           { onConflict: "exhibitor_id" },
         );
-        if (error) throw new Error(`borrow-short upsert: ${error.message}`);
-
         await supabase
           .from("exhibitors")
-          .update({
-            short_status: "done",
-            borrowed_short_from_exhibitor_id: borrowed.sourceExhibitorId,
-            current_step: null,
-          })
+          .update({ short_status: "done", current_step: null })
           .eq("id", exhibitorId);
 
         revalidateTag(showExhibitorsTag(tradeShowId));
@@ -680,7 +663,7 @@ export const exhibitorShort = inngest.createFunction(
 
         await tryAppendLog(supabase, tradeShowId, {
           phase: "short",
-          message: `[Short] ${exhibitor.company_name}: uebernommen von ${borrowed.showName}`,
+          message: `[Short] ${exhibitor.company_name}: Intel von Unternehmensebene uebernommen`,
         });
       });
 
@@ -688,7 +671,7 @@ export const exhibitorShort = inngest.createFunction(
         await notifyShortBulkIfDone(supabase, tradeShowId);
       });
 
-      return { ok: true, borrowed: true, showName: borrowed.showName };
+      return { ok: true, borrowed: true };
     }
 
     await step.run("mark-running", async () => {
@@ -751,25 +734,57 @@ export const exhibitorShort = inngest.createFunction(
     });
 
     await step.run("upsert-short", async () => {
+      const intelPayload = {
+        one_liner: result.intel.one_liner,
+        priority_label: result.intel.priority_label,
+        match_confidence: result.intel.match_confidence,
+        isp_sector_match: result.intel.isp_sector_match,
+        reasoning_bullets: result.intel.reasoning_bullets,
+        user_group: result.intel.user_group,
+        battery_need: result.intel.battery_need,
+        drone_relevance: result.intel.drone_relevance,
+        service_need: result.intel.service_need,
+      };
+      const firecrawlCredits = 0;
+
+      // 1) company_short — primary SSoT
+      const { data: exForCompany } = await supabase
+        .from("exhibitors")
+        .select("company_id")
+        .eq("id", exhibitorId)
+        .single();
+      const companyId = exForCompany?.company_id ?? null;
+
+      if (companyId) {
+        const { error: csErr } = await supabase.from("company_short").upsert(
+          {
+            company_id: companyId,
+            ...intelPayload,
+            tokens_in: result.usage.tokens_in,
+            tokens_out: result.usage.tokens_out,
+            firecrawl_credits: firecrawlCredits,
+          },
+          { onConflict: "company_id" },
+        );
+        if (csErr) throw new Error(`upsert company_short: ${csErr.message}`);
+
+        await supabase.from("companies").update({ short_status: "done" }).eq("id", companyId);
+        revalidateTag(companyIntelTag(companyId));
+      }
+
+      // 2) exhibitor_short — legacy mirror (tokens_in/out = 0 to avoid double-counting)
       const { error: shortError } = await supabase.from("exhibitor_short").upsert(
         {
           exhibitor_id: exhibitorId,
-          one_liner: result.intel.one_liner,
-          priority_label: result.intel.priority_label,
-          match_confidence: result.intel.match_confidence,
-          isp_sector_match: result.intel.isp_sector_match,
-          reasoning_bullets: result.intel.reasoning_bullets,
-          user_group: result.intel.user_group,
-          battery_need: result.intel.battery_need,
-          drone_relevance: result.intel.drone_relevance,
-          service_need: result.intel.service_need,
-          tokens_in: result.usage.tokens_in,
-          tokens_out: result.usage.tokens_out,
-          firecrawl_credits: exhibitor.website ? 1 : 0,
+          ...intelPayload,
+          tokens_in: 0,
+          tokens_out: 0,
+          firecrawl_credits: 0,
+          borrowed_from_show_name: null,
         },
         { onConflict: "exhibitor_id" },
       );
-      if (shortError) throw new Error(`upsert short: ${shortError.message}`);
+      if (shortError) throw new Error(`upsert exhibitor_short: ${shortError.message}`);
 
       await supabase
         .from("exhibitors")
@@ -798,6 +813,24 @@ export const exhibitorShort = inngest.createFunction(
           web_searches: result.usage.web_searches,
         },
       });
+
+      // 3) Webhooks feuern (fire-and-forget, nie werfen)
+      if (companyId) {
+        const { data: companyRow } = await supabase
+          .from("companies")
+          .select("user_id")
+          .eq("id", companyId)
+          .maybeSingle();
+        if (companyRow?.user_id) {
+          await fireWebhooks(companyRow.user_id, "company_short.upserted", {
+            company_id: companyId,
+            match_confidence: result.intel.match_confidence,
+            priority_label: result.intel.priority_label,
+            one_liner: result.intel.one_liner,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
     });
 
     await step.run("notify-bulk-if-done", async () => {
@@ -857,29 +890,31 @@ export const exhibitorDeep = inngest.createFunction(
     const exhibitor = await step.run("load-exhibitor", async () => {
       const { data, error } = await supabase
         .from("exhibitors")
-        .select(
-          "id, company_name, website, booth, profile_url, profile_data, linkedin_url, exhibitor_short(one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets)",
-        )
+        .select("id, company_name, website, booth, profile_url, profile_data, linkedin_url, company_id")
         .eq("id", exhibitorId)
         .single();
       if (error || !data) throw new NonRetriableError(`exhibitor not found: ${exhibitorId}`);
       return data;
     });
 
-    const shortContext: ShortIntel | null = exhibitor.exhibitor_short
-      ? {
-          one_liner: (exhibitor.exhibitor_short as any).one_liner,
-          priority_label: (exhibitor.exhibitor_short as any).priority_label,
-          match_confidence: (exhibitor.exhibitor_short as any).match_confidence,
-          isp_sector_match: (exhibitor.exhibitor_short as any).isp_sector_match ?? [],
-          reasoning_bullets:
-            (exhibitor.exhibitor_short as any).reasoning_bullets ?? "",
-          user_group: (exhibitor.exhibitor_short as any).user_group ?? "Industrie/Sonstiges",
-          battery_need: (exhibitor.exhibitor_short as any).battery_need ?? "gering",
-          drone_relevance: (exhibitor.exhibitor_short as any).drone_relevance ?? "Nein",
-          service_need: (exhibitor.exhibitor_short as any).service_need ?? [],
-        }
-      : null;
+    // Short-Kontext aus company_short laden (SSoT), Fallback exhibitor_short.
+    const shortContext: ShortIntel | null = await step.run("load-short-context", async () => {
+      const companyId = (exhibitor as any).company_id;
+      if (companyId) {
+        const { data: cs } = await supabase
+          .from("company_short")
+          .select("one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need")
+          .eq("company_id", companyId)
+          .maybeSingle();
+        if (cs) return cs as ShortIntel;
+      }
+      const { data: es } = await supabase
+        .from("exhibitor_short")
+        .select("one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need")
+        .eq("exhibitor_id", exhibitorId)
+        .maybeSingle();
+      return (es as ShortIntel | null);
+    });
 
     const settings = await step.run("load-settings", async () => {
       const s = await getSettingsServiceRole(supabase);
@@ -942,25 +977,50 @@ export const exhibitorDeep = inngest.createFunction(
     });
 
     await step.run("upsert-deep", async () => {
+      const deepPayload = {
+        business_summary: result.intel.business_summary,
+        decision_makers: result.intel.decision_makers,
+        recent_news: result.intel.recent_news,
+        technical_pain_points: result.intel.technical_pain_points,
+        opening_questions: result.intel.opening_questions,
+        competition_context: result.intel.competition_context,
+        isp_lifecycle_match: result.intel.isp_lifecycle_match,
+        isp_service_fit: result.intel.isp_service_fit,
+        full_reasoning: result.intel.full_reasoning,
+      };
+      const firecrawlCredits = 0;
+      const companyId = (exhibitor as any).company_id ?? null;
+
+      // 1) company_deep — primary SSoT
+      if (companyId) {
+        const { error: cdErr } = await supabase.from("company_deep").upsert(
+          {
+            company_id: companyId,
+            ...deepPayload,
+            tokens_in: result.usage.tokens_in,
+            tokens_out: result.usage.tokens_out,
+            firecrawl_credits: firecrawlCredits,
+          },
+          { onConflict: "company_id" },
+        );
+        if (cdErr) throw new Error(`upsert company_deep: ${cdErr.message}`);
+
+        await supabase.from("companies").update({ deep_status: "done" }).eq("id", companyId);
+        revalidateTag(companyIntelTag(companyId));
+      }
+
+      // 2) exhibitor_deep — legacy mirror (tokens_in/out = 0)
       const { error: deepError } = await supabase.from("exhibitor_deep").upsert(
         {
           exhibitor_id: exhibitorId,
-          business_summary: result.intel.business_summary,
-          decision_makers: result.intel.decision_makers,
-          recent_news: result.intel.recent_news,
-          technical_pain_points: result.intel.technical_pain_points,
-          opening_questions: result.intel.opening_questions,
-          competition_context: result.intel.competition_context,
-          isp_lifecycle_match: result.intel.isp_lifecycle_match,
-          isp_service_fit: result.intel.isp_service_fit,
-          full_reasoning: result.intel.full_reasoning,
-          tokens_in: result.usage.tokens_in,
-          tokens_out: result.usage.tokens_out,
-          firecrawl_credits: exhibitor.website ? 1 : 0,
+          ...deepPayload,
+          tokens_in: 0,
+          tokens_out: 0,
+          firecrawl_credits: 0,
         },
         { onConflict: "exhibitor_id" },
       );
-      if (deepError) throw new Error(`upsert deep: ${deepError.message}`);
+      if (deepError) throw new Error(`upsert exhibitor_deep: ${deepError.message}`);
 
       await supabase
         .from("exhibitors")
@@ -984,6 +1044,21 @@ export const exhibitorDeep = inngest.createFunction(
           tokens_out: result.usage.tokens_out,
         },
       });
+
+      // 3) Webhooks feuern
+      if (companyId) {
+        const { data: companyRow } = await supabase
+          .from("companies")
+          .select("user_id")
+          .eq("id", companyId)
+          .maybeSingle();
+        if (companyRow?.user_id) {
+          await fireWebhooks(companyRow.user_id, "company_deep.upserted", {
+            company_id: companyId,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
     });
 
     await step.run("notify-deep-done", async () => {
@@ -1112,7 +1187,7 @@ export const exhibitorProfileEnrich = inngest.createFunction(
       const update: Record<string, unknown> = {
         profile_data: merged,
         profile_enrich_status: "done",
-        firecrawl_credits_profile_enrich: 5,
+        firecrawl_credits_profile_enrich: 0,
       };
       // The external website is the most valuable field — promote it onto
       // the top-level `website` column so existing scrape/short flows pick
@@ -1805,7 +1880,7 @@ export const showDiscovery = inngest.createFunction(
       await step.sendEvent(
         "fan-out-firecrawl",
         toValidate.map((r) => ({
-          name: "show.result.firecrawl.requested" as const,
+          name: "show.result.scrape.requested" as const,
           data: { resultId: r.id, runId, userId, showName: r.name, website: r.website },
         })),
       );
@@ -1816,7 +1891,7 @@ export const showDiscovery = inngest.createFunction(
       await supabase
         .from("show_discovery_runs")
         .update({
-          current_phase: toValidate.length > 0 ? "firecrawl_validation" : "done",
+          current_phase: toValidate.length > 0 ? "scrape_validation" : "done",
           status: toValidate.length > 0 ? "running" : "done",
           model: SHOW_DISCOVERY_MODEL,
           tokens_in: result.usage.tokens_in,
@@ -1830,7 +1905,7 @@ export const showDiscovery = inngest.createFunction(
         })
         .eq("id", runId);
       await tryAppendShowDiscoveryLog(supabase, runId, userId, {
-        phase: "firecrawl_validation",
+        phase: "scrape_validation",
         message: toValidate.length > 0
           ? `Firecrawl-Validierung gestartet fuer ${toValidate.length} URLs (${skipped} uebersprungen)`
           : `Fertig (keine URLs zu validieren, ${skipped} uebersprungen)`,
@@ -1844,12 +1919,12 @@ export const showDiscovery = inngest.createFunction(
 
 export const showResultFirecrawl = inngest.createFunction(
   {
-    id: "show-result-firecrawl",
+    id: "show-result-scrape",
     concurrency: { limit: 4 },
     throttle: { limit: 20, period: "1m" },
     retries: 1,
   },
-  { event: "show.result.firecrawl.requested" },
+  { event: "show.result.scrape.requested" },
   async ({ event, step }) => {
     const { resultId, runId, userId, showName, website } = event.data as {
       resultId: string;
@@ -1873,7 +1948,7 @@ export const showResultFirecrawl = inngest.createFunction(
       await step.run("skip-cancelled", async () => {
         await tryAppendShowDiscoveryLog(supabase, runId, userId, {
           level: "warn",
-          phase: "firecrawl_start",
+          phase: "scrape_start",
           message: `Validierung uebersprungen (Lauf wurde gestoppt): ${showName}`,
           meta: { result_id: resultId },
         });
@@ -1881,14 +1956,14 @@ export const showResultFirecrawl = inngest.createFunction(
       return;
     }
 
-    await step.run("firecrawl-validate", async () => {
+    await step.run("scrape-validate", async () => {
       // Mark running
       await supabase
         .from("show_discovery_results")
         .update({ firecrawl_status: "running" })
         .eq("id", resultId);
       await tryAppendShowDiscoveryLog(supabase, runId, userId, {
-        phase: "firecrawl_start",
+        phase: "scrape_start",
         message: `Validiere: ${showName}`,
         meta: { result_id: resultId, website },
       });
@@ -1915,7 +1990,7 @@ export const showResultFirecrawl = inngest.createFunction(
         .eq("id", resultId);
 
       await tryAppendShowDiscoveryLog(supabase, runId, userId, {
-        phase: "firecrawl_done",
+        phase: "scrape_done",
         message: exhibitorCount
           ? `${showName} validiert (${exhibitorCount} Aussteller lt. Website)`
           : `${showName} validiert (kein Scraping moeglich, URL gespeichert)`,
@@ -2571,7 +2646,7 @@ export const competitorShort = inngest.createFunction(
           tokens_out: usage.tokens_out,
           model: (settings as any).competitor_short_model ?? SHORT_MODEL_DEFAULT,
           raw_snapshot: intel,
-          firecrawl_credits: 1,
+          firecrawl_credits: 0,
         })
         .select("id")
         .single();
@@ -2781,7 +2856,7 @@ const exhibitorMapListing = inngest.createFunction(
       message: `Map-Listing: Firecrawl Map auf ${show.source_url}`,
     });
 
-    const allUrls = await step.run("firecrawl-map", async () => {
+    const allUrls = await step.run("scrape-map", async () => {
       return mapShowUrl(show.source_url as string);
     });
 
@@ -2870,6 +2945,551 @@ const exhibitorMapListing = inngest.createFunction(
   },
 );
 
+// ---------- Company-Level Deep Dive ----------
+// Triggered von /api/companies/[id]/deep-dive oder Company-Detailseite.
+// Loest besten Exhibitor auf (hat Website, neueste Beteiligung) und
+// fuehrt den Standard-Deep-Dive durch. Ergebnis landet in company_deep.
+
+export const companyDeepDive = inngest.createFunction(
+  {
+    id: "company-deep-dive",
+    concurrency: { limit: 3 },
+    retries: 2,
+    onFailure: async ({ event }) => {
+      const supabase = createServiceRoleClient();
+      const data = (event.data as any).event?.data ?? event.data;
+      const companyId = data.companyId;
+      if (companyId) {
+        await supabase
+          .from("companies")
+          .update({ deep_status: "failed" })
+          .eq("id", companyId);
+      }
+    },
+  },
+  { event: "company.deep.requested" },
+  async ({ event, step }) => {
+    const { companyId } = event.data;
+    const supabase = createServiceRoleClient();
+
+    // Besten Exhibitor finden: bevorzuge Website + neueste Beteiligung.
+    const exhibitor = await step.run("resolve-exhibitor", async () => {
+      const { data: rows } = await supabase
+        .from("exhibitors")
+        .select("id, trade_show_id, company_name, website, booth, profile_url, profile_data, linkedin_url, company_id")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false });
+      if (!rows || rows.length === 0) throw new NonRetriableError(`no exhibitor for company ${companyId}`);
+      const withSite = rows.find((r) => r.website);
+      return (withSite ?? rows[0]) as typeof rows[0];
+    });
+
+    const settings = await step.run("load-settings", async () => {
+      const s = await getSettingsServiceRole(supabase);
+      return {
+        prio_context: s?.prio_context ?? defaultPrioContext(),
+        model: s?.deep_model ?? DEEP_MODEL_DEFAULT,
+        system_prompt: s?.deep_system_prompt ?? null,
+        user_template: s?.deep_user_template ?? null,
+        max_tokens: s?.deep_max_tokens ?? null,
+        max_input_chars: s?.deep_max_input_chars ?? null,
+      };
+    });
+
+    await step.run("mark-running", async () => {
+      await supabase.from("companies").update({ deep_status: "running" }).eq("id", companyId);
+      await supabase
+        .from("exhibitors")
+        .update({ deep_status: "running", current_step: "deep_scraping" })
+        .eq("id", exhibitor.id);
+    });
+
+    const markdown = await step.run("scrape-company-site", async () => {
+      if (!exhibitor.website) return "";
+      return await scrapeCompanySite(exhibitor.website);
+    });
+
+    const shortContext: ShortIntel | null = await step.run("load-short-context", async () => {
+      const { data: cs } = await supabase
+        .from("company_short")
+        .select("one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need")
+        .eq("company_id", companyId)
+        .maybeSingle();
+      return (cs as ShortIntel | null);
+    });
+
+    await step.run("mark-analyzing", async () => {
+      await supabase
+        .from("exhibitors")
+        .update({ current_step: "deep_analyzing" })
+        .eq("id", exhibitor.id);
+    });
+
+    const claudeStart = Date.now();
+    const result = await step.run("claude-deep", async () => {
+      return await enrichDeep({
+        companyName: exhibitor.company_name,
+        website: exhibitor.website,
+        booth: exhibitor.booth,
+        profileUrl: exhibitor.profile_url,
+        profileData: exhibitor.profile_data as Record<string, unknown> | null,
+        linkedinUrl: (exhibitor as any).linkedin_url ?? null,
+        scrapedMarkdown: markdown,
+        prioContext: settings.prio_context,
+        model: settings.model,
+        shortContext,
+        systemPrompt: settings.system_prompt,
+        userTemplate: settings.user_template,
+        maxTokens: settings.max_tokens,
+        maxInputChars: settings.max_input_chars,
+      });
+    });
+
+    await step.run("upsert-deep", async () => {
+      const deepPayload = {
+        business_summary: result.intel.business_summary,
+        decision_makers: result.intel.decision_makers,
+        recent_news: result.intel.recent_news,
+        technical_pain_points: result.intel.technical_pain_points,
+        opening_questions: result.intel.opening_questions,
+        competition_context: result.intel.competition_context,
+        isp_lifecycle_match: result.intel.isp_lifecycle_match,
+        isp_service_fit: result.intel.isp_service_fit,
+        full_reasoning: result.intel.full_reasoning,
+      };
+
+      const { error: cdErr } = await supabase.from("company_deep").upsert(
+        {
+          company_id: companyId,
+          ...deepPayload,
+          tokens_in: result.usage.tokens_in,
+          tokens_out: result.usage.tokens_out,
+          firecrawl_credits: 0,
+        },
+        { onConflict: "company_id" },
+      );
+      if (cdErr) throw new Error(`upsert company_deep: ${cdErr.message}`);
+
+      // exhibitor_deep Mirror (0 tokens)
+      await supabase.from("exhibitor_deep").upsert(
+        { exhibitor_id: exhibitor.id, ...deepPayload, tokens_in: 0, tokens_out: 0, firecrawl_credits: 0 },
+        { onConflict: "exhibitor_id" },
+      );
+
+      await supabase.from("companies").update({ deep_status: "done" }).eq("id", companyId);
+      await supabase
+        .from("exhibitors")
+        .update({ deep_status: "done", current_step: null })
+        .eq("id", exhibitor.id);
+
+      revalidateTag(companyIntelTag(companyId));
+      revalidateTag(exhibitorIntelTag(exhibitor.id));
+
+      const { data: companyRow } = await supabase
+        .from("companies")
+        .select("user_id, display_name")
+        .eq("id", companyId)
+        .maybeSingle();
+      if (companyRow?.user_id) {
+        await fireWebhooks(companyRow.user_id, "company_deep.upserted", {
+          company_id: companyId,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    });
+
+    return {
+      ok: true,
+      dur_ms: Date.now() - claudeStart,
+    };
+  },
+);
+
+// ============================================================
+// COMPANY SEARCH — KI-gestuetzte Kunden-Discovery
+// ============================================================
+
+export const companySearch = inngest.createFunction(
+  {
+    id: "company-search",
+    concurrency: { limit: 1, key: "event.data.userId" },
+    throttle: { limit: 3, period: "1m", key: "event.data.userId" },
+    retries: 0,
+    onFailure: async ({ event }) => {
+      const supabase = createServiceRoleClient();
+      const inner = (event as any).data?.event?.data ?? {};
+      const runId = inner.runId as string | undefined;
+      const userId = inner.userId as string | undefined;
+      const errMsg = String((event as any).data?.error?.message ?? "unknown");
+      if (!runId) return;
+      await supabase
+        .from("company_search_runs")
+        .update({
+          status: "failed",
+          current_phase: "failed",
+          error_message: errMsg,
+          finished_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      if (userId) {
+        await tryAppendCompanySearchLog(supabase, runId, userId, {
+          level: "error",
+          phase: "failed",
+          message: `Lauf abgebrochen: ${errMsg}`,
+        });
+      }
+    },
+  },
+  { event: "company.search.requested" },
+  async ({ event, step }) => {
+    const { userId, runId, userPrompt } = event.data as {
+      userId: string;
+      runId: string;
+      userPrompt: string;
+    };
+    const supabase = createServiceRoleClient();
+
+    await step.run("mark-running", async () => {
+      await supabase
+        .from("company_search_runs")
+        .update({ status: "running", current_phase: "preparing", started_at: new Date().toISOString() })
+        .eq("id", runId);
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "preparing",
+        message: "Kunden-Suche gestartet",
+        meta: { user_prompt: userPrompt.slice(0, 200) },
+      });
+    });
+
+    const settings = await step.run("load-settings", async () => {
+      const s = await getSettingsServiceRole(supabase);
+      if (!s) throw new NonRetriableError("no app_settings row found");
+      return s;
+    });
+
+    const eff = effectiveCompanySearch(settings);
+
+    await step.run("log-prompt-prepared", async () => {
+      await supabase
+        .from("company_search_runs")
+        .update({ current_phase: "preparing_prompt" })
+        .eq("id", runId);
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "preparing_prompt",
+        message: `Settings geladen: model=${COMPANY_SEARCH_MODEL}, max_tokens=${eff.max_tokens}, max_web_searches=${eff.max_web_searches}`,
+      });
+    });
+
+    const result = await step.run("claude-research", async () => {
+      await supabase
+        .from("company_search_runs")
+        .update({ current_phase: "claude_research" })
+        .eq("id", runId);
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "claude_research",
+        message: `Claude Opus startet (max ${eff.max_web_searches} Web-Searches)`,
+      });
+      try {
+        const r = await discoverCompanies({
+          userPrompt,
+          prioContext: settings.prio_context,
+          systemPrompt: eff.system_prompt,
+          maxTokens: eff.max_tokens,
+          maxWebSearches: eff.max_web_searches,
+        });
+        await tryAppendCompanySearchLog(supabase, runId, userId, {
+          phase: "claude_research",
+          message: `Claude fertig: ${r.webSearchUses} Web-Search(es), ${r.output.items.length} Kandidaten gefunden`,
+          meta: {
+            web_search_uses: r.webSearchUses,
+            candidates_count: r.output.items.length,
+            tokens_in: r.usage.tokens_in,
+            tokens_out: r.usage.tokens_out,
+          },
+        });
+        return r;
+      } catch (e) {
+        await tryAppendCompanySearchLog(supabase, runId, userId, {
+          level: "error",
+          phase: "claude_research",
+          message: `Claude-Call fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`,
+        });
+        throw e instanceof NonRetriableError ? e : new NonRetriableError(String(e));
+      }
+    });
+
+    await step.run("log-web-searches", async () => {
+      for (let i = 0; i < result.output.webSearchQueries.length; i++) {
+        const q = result.output.webSearchQueries[i];
+        await tryAppendCompanySearchLog(supabase, runId, userId, {
+          phase: "web_search",
+          message: `Q${String(i + 1).padStart(2, "0")} ${q.query}`,
+          meta: { query_number: i + 1, query_text: q.query, result_count: q.result_count },
+        });
+      }
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "claude_submit",
+        message: `${result.output.items.length} Kandidaten eingereicht`,
+        meta: {
+          candidates_count: result.output.items.length,
+          web_search_total: result.webSearchUses,
+          reasoning: result.output.reasoning.slice(0, 500),
+        },
+      });
+    });
+
+    const cancelledAfterClaude = await step.run("check-cancel-after-claude", async () => {
+      const { data } = await supabase
+        .from("company_search_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      return data?.status === "cancelled";
+    });
+
+    if (cancelledAfterClaude) {
+      return { runId, total: 0, to_enrich: 0, cancelled: true };
+    }
+
+    const resultIds = await step.run("persist-candidates", async () => {
+      await supabase
+        .from("company_search_runs")
+        .update({ current_phase: "persisting" })
+        .eq("id", runId);
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "persisting",
+        message: `Persistiere ${result.output.items.length} Kandidaten`,
+      });
+
+      const rows = result.output.items.map((item) => ({
+        run_id: runId,
+        user_id: userId,
+        name: item.name,
+        website: item.website ?? null,
+        domain: item.website ? (() => { try { return new URL(item.website!).hostname.replace(/^www\./, ""); } catch { return null; } })() : null,
+        location_city: item.location_city ?? null,
+        location_country: item.location_country ?? null,
+        description: item.description,
+        isp_sector_match: item.isp_sector_match,
+        relevance_score: item.relevance_score,
+        relevance_reasoning: item.relevance_reasoning,
+        evidence_urls: item.evidence_urls,
+        firecrawl_status: item.website ? "pending" : "skipped",
+      }));
+
+      const { data: inserted, error } = await supabase
+        .from("company_search_results")
+        .insert(rows)
+        .select("id, name, website, firecrawl_status");
+      if (error) throw new Error(`persist-candidates: ${error.message}`);
+
+      await supabase
+        .from("company_search_runs")
+        .update({
+          candidates_total: rows.length,
+          model: COMPANY_SEARCH_MODEL,
+          tokens_in: result.usage.tokens_in,
+          tokens_out: result.usage.tokens_out,
+          web_search_uses: result.webSearchUses,
+        })
+        .eq("id", runId);
+
+      return (inserted ?? []) as Array<{ id: string; name: string; website: string | null; firecrawl_status: string }>;
+    });
+
+    const toEnrich = resultIds.filter((r) => r.website && r.firecrawl_status === "pending");
+    if (toEnrich.length > 0) {
+      await step.sendEvent(
+        "fan-out-enrich",
+        toEnrich.map((r) => ({
+          name: "company.search.result.enrich.requested" as const,
+          data: { resultId: r.id, runId, userId, companyName: r.name, website: r.website },
+        })),
+      );
+    }
+
+    await step.run("mark-claude-done", async () => {
+      const skipped = resultIds.filter((r) => r.firecrawl_status === "skipped").length;
+      await supabase
+        .from("company_search_runs")
+        .update({
+          current_phase: toEnrich.length > 0 ? "enrich_validation" : "done",
+          status: toEnrich.length > 0 ? "running" : "done",
+          firecrawl_credits: 0,
+          ...(toEnrich.length === 0 && {
+            finished_at: new Date().toISOString(),
+            candidates_validated: skipped,
+          }),
+        })
+        .eq("id", runId);
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "enrich_validation",
+        message: toEnrich.length > 0
+          ? `Enrich-Phase gestartet fuer ${toEnrich.length} Kandidaten (${skipped} ohne Website uebersprungen)`
+          : `Fertig (keine Websites zu enrichen, ${skipped} uebersprungen)`,
+        meta: { to_enrich: toEnrich.length, skipped },
+      });
+    });
+
+    return { runId, total: resultIds.length, to_enrich: toEnrich.length };
+  },
+);
+
+export const companySearchResultEnrich = inngest.createFunction(
+  {
+    id: "company-search-result-enrich",
+    concurrency: { limit: 4 },
+    throttle: { limit: 20, period: "1m" },
+    retries: 1,
+  },
+  { event: "company.search.result.enrich.requested" },
+  async ({ event, step }) => {
+    const { resultId, runId, userId, companyName, website } = event.data as {
+      resultId: string;
+      runId: string;
+      userId: string;
+      companyName: string;
+      website: string;
+    };
+    const supabase = createServiceRoleClient();
+
+    const cancelled = await step.run("check-run-cancelled", async () => {
+      const { data } = await supabase
+        .from("company_search_runs")
+        .select("status")
+        .eq("id", runId)
+        .maybeSingle();
+      return data?.status === "cancelled";
+    });
+
+    if (cancelled) {
+      await step.run("skip-cancelled", async () => {
+        await tryAppendCompanySearchLog(supabase, runId, userId, {
+          level: "warn",
+          phase: "enrich_start",
+          message: `Enrich uebersprungen (Lauf wurde gestoppt): ${companyName}`,
+          meta: { result_id: resultId },
+        });
+      });
+      return;
+    }
+
+    await step.run("enrich-step", async () => {
+      await supabase
+        .from("company_search_results")
+        .update({ firecrawl_status: "running" })
+        .eq("id", resultId);
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "enrich_start",
+        message: `Enriche: ${companyName}`,
+        meta: { result_id: resultId, website },
+      });
+
+      // Fetch the description for the enrich prompt
+      const { data: resultRow } = await supabase
+        .from("company_search_results")
+        .select("description")
+        .eq("id", resultId)
+        .maybeSingle();
+      const description = (resultRow as { description?: string } | null)?.description ?? "";
+
+      // Scrape website content
+      const siteContent = await scrapeCompanySite(website).catch(() => "");
+      const confirmedUrl = website;
+
+      // Settings for prio_context
+      const settings = await getSettingsServiceRole(supabase);
+      const prioContext = settings?.prio_context ?? defaultPrioContext();
+
+      // Claude Haiku mini-analysis
+      let shortData: Awaited<ReturnType<typeof enrichCompanyShort>>["result"] | null = null;
+      let shortUsage = { tokens_in: 0, tokens_out: 0 };
+      try {
+        const enrichResult = await enrichCompanyShort({
+          name: companyName,
+          website,
+          description,
+          siteContent,
+          prioContext,
+        });
+        shortData = enrichResult.result;
+        shortUsage = enrichResult.usage;
+      } catch {
+        // Enrich failure is non-fatal; we still mark done
+      }
+
+      await supabase
+        .from("company_search_results")
+        .update({
+          firecrawl_status: "done",
+          firecrawl_confirmed_url: confirmedUrl,
+          ...(shortData && {
+            one_liner: shortData.one_liner,
+            priority_label: shortData.priority_label,
+            match_confidence: shortData.match_confidence,
+            isp_sector_match_detail: shortData.isp_sector_match_detail,
+            reasoning_bullets: shortData.reasoning_bullets,
+            battery_need: shortData.battery_need,
+            user_group: shortData.user_group,
+          }),
+        })
+        .eq("id", resultId);
+
+      await tryAppendCompanySearchLog(supabase, runId, userId, {
+        phase: "enrich_done",
+        message: shortData
+          ? `${companyName} analysiert (prio: ${shortData.priority_label}, confidence: ${shortData.match_confidence})`
+          : `${companyName} analysiert (Short-Analyse fehlgeschlagen, URL gespeichert)`,
+        meta: {
+          result_id: resultId,
+          priority_label: shortData?.priority_label ?? null,
+          match_confidence: shortData?.match_confidence ?? null,
+          tokens_in: shortUsage.tokens_in,
+          tokens_out: shortUsage.tokens_out,
+        },
+      });
+
+      // Finalize run if all results done
+      const { count } = await supabase
+        .from("company_search_results")
+        .select("*", { count: "exact", head: true })
+        .eq("run_id", runId)
+        .in("firecrawl_status", ["pending", "running"]);
+
+      if (count === 0) {
+        const { count: validatedCount } = await supabase
+          .from("company_search_results")
+          .select("*", { count: "exact", head: true })
+          .eq("run_id", runId)
+          .eq("firecrawl_status", "done");
+
+        const { data: run } = await supabase
+          .from("company_search_runs")
+          .select("status")
+          .eq("id", runId)
+          .maybeSingle();
+
+        if ((run as { status: string } | null)?.status === "running") {
+          await supabase
+            .from("company_search_runs")
+            .update({
+              status: "done",
+              current_phase: "done",
+              candidates_validated: validatedCount ?? 0,
+              finished_at: new Date().toISOString(),
+            })
+            .eq("id", runId);
+          await tryAppendCompanySearchLog(supabase, runId, userId, {
+            phase: "done",
+            message: `Kunden-Suche abgeschlossen: ${validatedCount ?? 0} Kandidaten analysiert`,
+            meta: { validated: validatedCount ?? 0 },
+          });
+        }
+      }
+    });
+  },
+);
+
 export const functions = [
   crawlTradeShow,
   crawlTradeShowListing,
@@ -2878,6 +3498,7 @@ export const functions = [
   exhibitorUrlSearch,
   exhibitorShort,
   exhibitorDeep,
+  companyDeepDive,
   profileEnrichBulk,
   exhibitorProfileEnrich,
   manualEnrichChain,
@@ -2890,4 +3511,6 @@ export const functions = [
   preFilterBulk,
   preFilterBatch,
   exhibitorMapListing,
+  companySearch,
+  companySearchResultEnrich,
 ];

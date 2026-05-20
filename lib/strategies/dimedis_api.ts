@@ -1,10 +1,11 @@
 import type { CrawlPlan } from "@/lib/crawl-plan";
-import type { ExhibitorListing } from "@/lib/firecrawl";
+import type { ExhibitorListing } from "@/lib/scraper";
 import {
   extractDimedisConfigFromHtml,
   type DimedisConfig,
 } from "@/lib/dimedis-extractor";
-import { fc, type StrategyProgress } from "./shared";
+import { fetchRawHtml } from "@/lib/scraper";
+import type { StrategyProgress } from "./shared";
 
 export type DimedisApiResult = {
   exhibitors: ExhibitorListing[];
@@ -99,19 +100,8 @@ export async function executeDimedisApi(
 
 async function fetchDimedisConfig(url: string): Promise<DimedisConfig | null> {
   try {
-    const result: any = await fc().scrapeUrl(url, {
-      formats: ["rawHtml"],
-      onlyMainContent: false,
-      waitFor: 2000,
-      timeout: 30_000,
-    });
-    if (!result?.success) return null;
-    const html: string =
-      result.rawHtml ??
-      result.data?.rawHtml ??
-      result.html ??
-      result.data?.html ??
-      "";
+    const html = await fetchRawHtml(url);
+    if (!html) return null;
     return extractDimedisConfigFromHtml(html);
   } catch {
     return null;

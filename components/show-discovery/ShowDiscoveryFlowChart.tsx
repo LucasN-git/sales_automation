@@ -115,7 +115,7 @@ export function ShowDiscoveryFlowChart({
         </>
       )}
 
-      {/* Firecrawl validation block */}
+      {/* Scraper validation block */}
       {results.length > 0 && (
         <>
           <FlowConnector />
@@ -126,13 +126,13 @@ export function ShowDiscoveryFlowChart({
             }
             label={
               run.status === "done"
-                ? `Firecrawl abgeschlossen: ${validatedCount} validiert${failedCount > 0 ? `, ${failedCount} fehlgeschlagen` : ""}`
-                : `Firecrawl-Validierung (${validatedCount}/${toValidate.length} URLs validiert)`
+                ? `Scraper abgeschlossen: ${validatedCount} validiert${failedCount > 0 ? `, ${failedCount} fehlgeschlagen` : ""}`
+                : `Scraper-Validierung (${validatedCount}/${toValidate.length} URLs validiert)`
             }
-            detail="4 parallele Firecrawl-Sessions"
+            detail="4 parallele Scraper-Sessions"
           />
           <FlowConnector dashed />
-          <FirecrawlResultList results={results} />
+          <ScrapeResultList results={results} />
         </>
       )}
 
@@ -275,7 +275,7 @@ function WebSearchBlock({ queries }: { queries: LogEntry[] }) {
   );
 }
 
-function FirecrawlResultList({ results }: { results: DiscoveryResult[] }) {
+function ScrapeResultList({ results }: { results: DiscoveryResult[] }) {
   const sorted = [...results].sort((a, b) => {
     const order = { running: 0, pending: 1, done: 2, skipped: 3, failed: 4 };
     return (order[a.firecrawl_status] ?? 5) - (order[b.firecrawl_status] ?? 5);
@@ -291,7 +291,7 @@ function FirecrawlResultList({ results }: { results: DiscoveryResult[] }) {
           const exhibitorCount = r.firecrawl_extracted?.exhibitor_count as number | undefined;
           return (
             <li key={r.id} className="px-4 py-2.5 flex items-center gap-3">
-              <FirecrawlStatusIcon status={r.firecrawl_status} />
+              <ScrapeStatusIcon status={r.firecrawl_status} />
               <span className="text-body-sm flex-1 min-w-0">
                 {r.added_trade_show_id ? (
                   <a
@@ -323,7 +323,7 @@ function FirecrawlResultList({ results }: { results: DiscoveryResult[] }) {
   );
 }
 
-function FirecrawlStatusIcon({ status }: { status: DiscoveryResult["firecrawl_status"] }) {
+function ScrapeStatusIcon({ status }: { status: DiscoveryResult["firecrawl_status"] }) {
   if (status === "done") {
     return (
       <span

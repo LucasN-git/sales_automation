@@ -1,5 +1,5 @@
 import type { CrawlPlan } from "@/lib/crawl-plan";
-import type { ExhibitorListing } from "@/lib/firecrawl";
+import type { ExhibitorListing } from "@/lib/scraper";
 import { executeLetterLoop } from "./letter_loop";
 import { executeShowMore } from "./show_more";
 import { executePagination } from "./pagination";
@@ -27,7 +27,7 @@ export async function executeCrawlPlan(
   plan: CrawlPlan,
   onProgress: StrategyProgress,
 ): Promise<CrawlPlanResult> {
-  const engine = (plan as { engine?: string }).engine ?? "firecrawl";
+  const engine = (plan as { engine?: string }).engine ?? "jina";
 
   // engine="dimedis_api": single REST call, no browser. Fail -> EngineApiError;
   // the listing function catches it and asks the orchestrator to pick the next
@@ -38,7 +38,7 @@ export async function executeCrawlPlan(
       throw new EngineApiError({
         engine: "dimedis_api",
         reason: r.fallbackReason,
-        userMessage: `DIMEDIS-API konnte nicht abgefragt werden (${r.fallbackReason}). Bitte andere Engine wählen (browserbase oder firecrawl) und neu starten.`,
+        userMessage: `DIMEDIS-API konnte nicht abgefragt werden (${r.fallbackReason}). Bitte andere Engine wählen (browserbase oder jina) und neu starten.`,
       });
     }
     return { exhibitors: r.exhibitors, browserSec: r.sessionSec };
@@ -50,7 +50,7 @@ export async function executeCrawlPlan(
       throw new EngineApiError({
         engine: "mapyourshow_api",
         reason: r.fallbackReason,
-        userMessage: `MapYourShow-API konnte nicht abgefragt werden (${r.fallbackReason}). Bitte andere Engine wählen (browserbase oder firecrawl) und neu starten.`,
+        userMessage: `MapYourShow-API konnte nicht abgefragt werden (${r.fallbackReason}). Bitte andere Engine wählen (browserbase oder jina) und neu starten.`,
       });
     }
     return { exhibitors: r.exhibitors, browserSec: r.sessionSec };
@@ -62,14 +62,14 @@ export async function executeCrawlPlan(
       throw new EngineApiError({
         engine: "expofp_api",
         reason: r.fallbackReason,
-        userMessage: `ExpoFP-API konnte nicht abgefragt werden (${r.fallbackReason}). Bitte andere Engine wählen (browserbase oder firecrawl) und neu starten.`,
+        userMessage: `ExpoFP-API konnte nicht abgefragt werden (${r.fallbackReason}). Bitte andere Engine wählen (browserbase oder jina) und neu starten.`,
       });
     }
     return { exhibitors: r.exhibitors, browserSec: r.sessionSec };
   }
 
   // engine="browserbase" only meaningful for letter_loop (the real challenge).
-  // Other strategies (show_more, pagination, single_page) keep the V3 firecrawl
+  // Other strategies (show_more, pagination, single_page) use Jina Reader.
   // path for now — extend later if needed.
   if (engine === "browserbase" && plan.strategy === "letter_loop") {
     const { exhibitors, sessionSec } = await executeBrowserbaseLetterLoop(
@@ -94,7 +94,7 @@ export async function executeCrawlPlan(
     return { exhibitors: algolia.exhibitors, browserSec: algolia.sessionSec };
   }
 
-  // Default: V3 firecrawl path.
+  // Default: Jina Reader path ("jina" engine, also handles legacy "firecrawl" engine).
   let exhibitors: ExhibitorListing[];
   switch (plan.strategy) {
     case "letter_loop":

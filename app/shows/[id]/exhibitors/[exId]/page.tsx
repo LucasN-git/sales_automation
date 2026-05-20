@@ -46,6 +46,7 @@ export default async function ExhibitorDetailPage({
       showId={showId}
       exId={exId}
       showName={show?.name ?? null}
+      companyId={exhibitor.company_id ?? null}
       exhibitor={{
         company_name: exhibitor.company_name,
         website: exhibitor.website,

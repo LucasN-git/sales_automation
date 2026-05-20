@@ -1,5 +1,5 @@
 import type { CrawlPlan } from "@/lib/crawl-plan";
-import type { ExhibitorListing } from "@/lib/firecrawl";
+import type { ExhibitorListing } from "@/lib/scraper";
 import {
   extractExpoFpConfigFromUrl,
   type ExpoFpConfig,

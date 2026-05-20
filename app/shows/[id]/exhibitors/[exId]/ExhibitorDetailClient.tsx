@@ -23,6 +23,7 @@ export type ExhibitorDetailClientProps = {
   showId: string;
   exId: string;
   showName: string | null;
+  companyId?: string | null;
   exhibitor: {
     company_name: string;
     website: string | null;
@@ -69,6 +70,7 @@ export function ExhibitorDetailClient({
   showId,
   exId,
   showName,
+  companyId,
   exhibitor,
   borrowedFromShowName,
   shortIntel,
@@ -164,6 +166,19 @@ export function ExhibitorDetailClient({
             >
               {refreshing ? "startet…" : "neu erstellen"}
             </button>
+          </div>
+        )}
+        {!borrowedFromShowName && companyId && shortIntel && (
+          <div className="mb-5 px-4 py-3 border border-[var(--border-color-soft)] border-l-2 border-l-[var(--color-near-black)]/20 bg-[var(--color-near-black)]/[0.01] flex items-center gap-3 flex-wrap">
+            <span className="text-body-sm text-[var(--color-near-black)]/55">
+              intel gilt unternehmensweit.{" "}
+              <Link
+                href={`/companies/${companyId}`}
+                className="underline underline-offset-4 hover:text-[var(--color-near-black)] transition-colors"
+              >
+                firma ansehen
+              </Link>
+            </span>
           </div>
         )}
         {!shortIntel ? (

@@ -32,7 +32,9 @@ type PendingConfirmation = {
     | "create_trade_show"
     | "add_result_to_shows"
     | "dismiss_results"
-    | "update_discovery_settings_prompt";
+    | "update_discovery_settings_prompt"
+    | "add_result_to_companies"
+    | "dismiss_company_results";
   description: string;
   preview_items: string[];
   count: number;
@@ -64,7 +66,7 @@ type Thread = {
   last_message_at: string;
 };
 
-type ThreadType = "orchestrator" | "show-chat" | "exhibitor" | "dashboard" | "companies" | "competitor" | "show_discovery";
+type ThreadType = "orchestrator" | "show-chat" | "exhibitor" | "dashboard" | "companies" | "competitor" | "show_discovery" | "company_search";
 
 function getThreadType(t: Thread): ThreadType {
   if (t.exhibitor_focus) return "exhibitor";
@@ -73,6 +75,7 @@ function getThreadType(t: Thread): ThreadType {
   }
   if (t.scope === "competitor" || t.competitor_focus) return "competitor";
   if (t.scope === "show_discovery") return "show_discovery";
+  if (t.scope === "company_search") return "company_search";
   if (t.scope === "dashboard") return "dashboard";
   return "companies";
 }
@@ -85,6 +88,7 @@ const THREAD_TYPE_LABEL: Record<ThreadType, string> = {
   companies: "Firmen-Chat",
   competitor: "Konkurrent",
   show_discovery: "Messen-Suche",
+  company_search: "Kunden-Suche",
 };
 
 const THREAD_TYPE_DESC: Record<ThreadType, string> = {
@@ -102,6 +106,8 @@ const THREAD_TYPE_DESC: Record<ThreadType, string> = {
     "Konkurrenten-Chat. Steuert Discovery, Short-Analyse und Kuratierung.",
   show_discovery:
     "Messen-Suche-Orchestrator. Startet Discovery-Laeufe, kuratiert Treffer, uebernimmt Messen in die Pipeline.",
+  company_search:
+    "Kunden-Suche-Orchestrator. Startet Kunden-Discovery-Laeufe, kuratiert Treffer, uebernimmt Firmen in die Unternehmensliste.",
 };
 
 const MODELS = [
@@ -110,7 +116,7 @@ const MODELS = [
   { id: "claude-opus-4-7", label: "Opus" },
 ];
 
-export type ScopeKind = "dashboard" | "show" | "companies" | "competitor" | "show_discovery";
+export type ScopeKind = "dashboard" | "show" | "companies" | "competitor" | "show_discovery" | "company_search";
 
 export type ChatScope =
   | {
@@ -139,11 +145,16 @@ export type ChatScope =
       kind: "show_discovery";
       focusRunId?: string | null;
       focusName?: string | null;
+    }
+  | {
+      kind: "company_search";
+      focusRunId?: string | null;
+      focusName?: string | null;
     };
 
 type ScopeBindings = {
   apiBase: string;
-  focusBodyKey: "exhibitor_focus" | "company_focus" | "competitor_focus" | "show_discovery_run_focus" | null;
+  focusBodyKey: "exhibitor_focus" | "company_focus" | "competitor_focus" | "show_discovery_run_focus" | "company_search_run_focus" | null;
   focusQueryKey: "exhibitor" | "company" | "competitor" | "run" | null;
   focusId: string | null;
   focusName: string | null;
@@ -157,7 +168,9 @@ type ScopeBindings = {
     | "competitor-focus"
     | "dashboard"
     | "show_discovery"
-    | "show_discovery-focus";
+    | "show_discovery-focus"
+    | "company_search"
+    | "company_search-focus";
 };
 
 function bindScope(scope: ChatScope): ScopeBindings {
@@ -207,6 +220,18 @@ function bindScope(scope: ChatScope): ScopeBindings {
       focusName: scope.focusName ?? null,
       hasDeep: false,
       emptyVariant: focusId ? "show_discovery-focus" : "show_discovery",
+    };
+  }
+  if (scope.kind === "company_search") {
+    const focusId = scope.focusRunId ?? null;
+    return {
+      apiBase: "/api/company-search/chat",
+      focusBodyKey: "company_search_run_focus",
+      focusQueryKey: "run",
+      focusId,
+      focusName: scope.focusName ?? null,
+      hasDeep: false,
+      emptyVariant: focusId ? "company_search-focus" : "company_search",
     };
   }
   return {
@@ -713,6 +738,43 @@ export function ChatPanel({
           { role: "assistant" as const, content: `Erledigt: ${ok}/${items.length} Resultat(e) abgelehnt.` },
         ]);
         router.refresh();
+      } else if (conf.action_type === "add_result_to_companies") {
+        const resultId = conf.payload.result_id as string;
+        const runId = conf.payload.run_id as string;
+        res = await fetch(`/api/company-search/${runId}/results/${resultId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "add", confirmed: true }),
+        });
+        const j = await res.json();
+        if (res.ok && j.company_id) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant" as const, content: `Erledigt: Firma zur Unternehmensliste hinzugefuegt (${j.company_id}).` },
+          ]);
+          router.refresh();
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant" as const, content: `Fehler beim Hinzufuegen: ${j.error ?? "unbekannt"}.` },
+          ]);
+        }
+      } else if (conf.action_type === "dismiss_company_results") {
+        const items = (conf.payload.items as Array<{ result_id: string; run_id: string }>) ?? [];
+        let ok = 0;
+        for (const it of items) {
+          const r = await fetch(`/api/company-search/${it.run_id}/results/${it.result_id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "dismiss" }),
+          });
+          if (r.ok) ok += 1;
+        }
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant" as const, content: `Erledigt: ${ok}/${items.length} Kandidat(en) abgelehnt.` },
+        ]);
+        router.refresh();
       } else if (conf.action_type === "update_discovery_settings_prompt") {
         res = await fetch("/api/settings", {
           method: "PUT",
@@ -851,6 +913,10 @@ export function ChatPanel({
                 router.push(`/shows/search?thread=${t.id}`);
                 return;
               }
+              if (t.scope === "company_search" && scope.kind !== "company_search") {
+                router.push(`/companies/search?thread=${t.id}`);
+                return;
+              }
               if (t.scope === "dashboard" && scope.kind !== "dashboard") {
                 router.push(`/?thread=${t.id}`);
                 return;
@@ -982,6 +1048,13 @@ const PIPELINE_TOOL_LABELS: Record<string, string> = {
   add_result_to_shows: "Treffer zur Pipeline",
   dismiss_results: "Treffer abgelehnt",
   update_discovery_settings: "Settings aktualisiert",
+  start_search: "Kunden-Suche gestartet",
+  cancel_search: "Suche gestoppt",
+  resume_search: "Suche neu gestartet",
+  get_search_status: "Status abgerufen",
+  add_result_to_companies: "Firma hinzugefuegt",
+  dismiss_company_results: "Kandidaten abgelehnt",
+  update_search_settings: "Suche-Settings aktualisiert",
 };
 
 const TOOLS_WITH_LOGS = new Set([
@@ -1710,11 +1783,20 @@ function EmptyState({
     | "competitor-focus"
     | "dashboard"
     | "show_discovery"
-    | "show_discovery-focus";
+    | "show_discovery-focus"
+    | "company_search"
+    | "company_search-focus";
   focusName: string | null;
 }) {
   let items: string[];
-  if (variant === "show_discovery-focus" || variant === "show_discovery") {
+  if (variant === "company_search-focus" || variant === "company_search") {
+    items = [
+      "Starte eine Suche nach Drohnen-Herstellern in Deutschland.",
+      "Was laeuft gerade?",
+      "Zeig die Top-5 Kandidaten mit Score >= 7.",
+      "Fuege Quantum Systems zur Unternehmensliste hinzu.",
+    ];
+  } else if (variant === "show_discovery-focus" || variant === "show_discovery") {
     items = [
       "Starte eine Suche nach Maritime-Messen 2026 in Europa.",
       "Was laeuft gerade?",

@@ -1,11 +1,13 @@
 import { unstable_cache } from "next/cache";
 import { createServiceRoleClient } from "./supabase/server";
+import type { CompanyShortRow, CompanyDeepRow } from "./companies";
 
 // ─── Tag helpers ──────────────────────────────────────────────────────────────
 // Single source of truth for cache tags so callers and revalidators stay in sync.
 
 export const showExhibitorsTag = (showId: string) => `show-${showId}-exhibitors`;
 export const exhibitorIntelTag = (exId: string) => `exhibitor-${exId}-intel`;
+export const companyIntelTag = (companyId: string) => `company-intel-${companyId}`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +35,7 @@ export type CachedExhibitorIntel = {
   exhibitor: {
     id: string;
     company_name: string;
+    company_id: string | null;
     website: string | null;
     booth: string | null;
     short_status: string;
@@ -125,7 +128,7 @@ export function getCachedExhibitorIntel(
         supabase
           .from("exhibitors")
           .select(
-            "id, company_name, website, booth, short_status, deep_status, current_step, trade_show_id, profile_url, profile_data, profile_enrich_status",
+            "id, company_name, company_id, website, booth, short_status, deep_status, current_step, trade_show_id, profile_url, profile_data, profile_enrich_status, borrowed_short_from_exhibitor_id, pre_filter_status, pre_filter_reason",
           )
           .eq("id", exId)
           .single(),
@@ -155,5 +158,54 @@ export function getCachedExhibitorIntel(
       revalidate: 120,
       tags: [showExhibitorsTag(showId), exhibitorIntelTag(exId)],
     },
+  )();
+}
+
+export type CachedCompanyIntel = {
+  company: {
+    id: string;
+    display_name: string;
+    domain: string | null;
+    website: string | null;
+    short_status: string;
+    deep_status: string;
+  } | null;
+  shortIntel: CompanyShortRow | null;
+  deepIntel: CompanyDeepRow | null;
+};
+
+export function getCachedCompanyIntel(companyId: string): Promise<CachedCompanyIntel> {
+  return unstable_cache(
+    async () => {
+      const supabase = createServiceRoleClient();
+      const [{ data: company }, { data: shortIntel }, { data: deepIntel }] = await Promise.all([
+        supabase
+          .from("companies")
+          .select("id, display_name, domain, website, short_status, deep_status")
+          .eq("id", companyId)
+          .maybeSingle(),
+        supabase
+          .from("company_short")
+          .select(
+            "one_liner, priority_label, match_confidence, isp_sector_match, reasoning_bullets, user_group, battery_need, drone_relevance, service_need, tokens_in, tokens_out, updated_at",
+          )
+          .eq("company_id", companyId)
+          .maybeSingle(),
+        supabase
+          .from("company_deep")
+          .select(
+            "business_summary, decision_makers, recent_news, technical_pain_points, opening_questions, competition_context, isp_lifecycle_match, isp_service_fit, full_reasoning, tokens_in, tokens_out, updated_at",
+          )
+          .eq("company_id", companyId)
+          .maybeSingle(),
+      ]);
+      return {
+        company: company as CachedCompanyIntel["company"],
+        shortIntel: shortIntel as CompanyShortRow | null,
+        deepIntel: deepIntel as CompanyDeepRow | null,
+      };
+    },
+    ["company-intel", companyId],
+    { revalidate: 120, tags: [companyIntelTag(companyId)] },
   )();
 }

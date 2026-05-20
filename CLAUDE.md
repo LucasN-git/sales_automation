@@ -6,7 +6,7 @@ Projekt-Memory für die Sales-Intelligence-Automation. Sub-Repo `git@github.com:
 
 Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/Industriemessen-URL ein, das System holt alle Aussteller, recherchiert pro Firma (Geschäftsfeld, Größe, Power-Bedarf), matcht gegen den ISP-Capability-Katalog und liefert pro Lead einen Pitch-Hook. Zusätzlich entdeckt das Tool relevante Messen (Show Discovery) und analysiert Wettbewerber (Competitors). Alle Unternehmenseinträge werden über Shows hinweg dedupliziert (Companies).
 
-**Aktueller Stand:** V5 — AI Orchestrator + URL-Search + Profile-Enrich + Companies + Competitors (inkl. Short-Analyse + Chat) + Show Discovery + Kosten-Tracking. 29 Migrationen, 15 Inngest-Functions.
+**Aktueller Stand:** V6 — Company Intel SSoT + Webhook-Infrastruktur. AI Orchestrator + URL-Search + Profile-Enrich + Companies + Competitors (inkl. Short-Analyse + Chat) + Show Discovery + Kosten-Tracking. 43 Migrationen, 16 Inngest-Functions.
 
 ---
 
@@ -15,7 +15,8 @@ Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/I
 - **Brand-Bibel:** `../../ISP_Power_Systems_Brand.md`. Die App-UI muss brand-konform bleiben — Helvetica, 3 Farben, Single Gold Accent pro View, Right Angles, keine Em-Dashes, keine Superlative. Design-Details: Sektion "Design System" weiter unten.
 - **Capability-Katalog:** `lib/isp-catalog.ts`. Gecachter System-Prompt-Block für alle Claude-Calls. Bei Sektor-Änderungen im Brand-Doc muss dieser mitziehen — sonst driftet das Matching.
 - **Prio-Kontext:** `lib/settings.ts` `defaultPrioContext()`. User editiert in Show-Settings, persistiert in `app_settings.prio_context`. Wird als gecachter Block an jeden Match-Call (Short, Deep, Chat) geschickt.
-- **Schema:** Migrationen in `supabase/migrations/0001_init.sql` bis `0029_chat_thread_scope.sql`. Neue Migrationen als `0030_*.sql` anlegen, nie alte editieren.
+- **Company Intel SSoT:** `company_short` + `company_deep` sind die kanonischen Analyse-Tabellen (1:1 mit companies). `exhibitor_short`/`exhibitor_deep` sind Write-Through-Mirrors mit `tokens_in=0` — nie direkt als Quelle verwenden, wenn `company_id` bekannt ist.
+- **Schema:** Migrationen in `supabase/migrations/0001_init.sql` bis `0043_companies_overview_v2.sql`. Neue Migrationen als `0044_*.sql` anlegen, nie alte editieren.
 
 ---
 
@@ -28,12 +29,14 @@ Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/I
 | AI Orchestrator als Chat-Schicht | Der User steuert die Pipeline uber naturliche Sprache. Claude als dual-role: Pipeline-Controller + Gesprächspartner. Tool-use-Loop max 8 Iterationen. |
 | Tier-System Short → Deep | Short (Haiku, bulk, ~0.02 EUR) filtert zuerst. Deep (Sonnet/Opus) nur auf explizite Anfrage. Spart 80-90 % Tokens. |
 | URL-Search vor Short | Aussteller ohne Website bekommen zuerst einen Claude-web_search-Call. Findet URL + LinkedIn. Verhindert Short-Calls ohne jeglichen Content. |
-| Profile-Enrich parallel nach Listing | Manche Listing-Seiten liefern pro Aussteller eine Detail-URL mit externem Website-Link. Firecrawl scrapt diese parallel, promoted `website`-Column. Kein LLM-Call. |
+| Profile-Enrich parallel nach Listing | Manche Listing-Seiten liefern pro Aussteller eine Detail-URL mit externem Website-Link. Jina/fetch scrapt diese parallel, promoted `website`-Column. Kein LLM-Call. |
 | Hardcoded Capability-Katalog | Editierbarer Catalog ware Feature-Creep. Brand-Änderungen gehören in einen Commit. |
 | Tailwind v4 + `border-radius: 0 !important` global | Right-Angles ist Brand-Hard-Rule. Ein globaler Reset ist einfacher als jedes Component. |
 | Polling statt Supabase Realtime | Realtime ist im Schema aktiviert (publication), UI nutzt `router.refresh()` alle 5 s. Wechsel wenn Frontend-Latenz stört. |
 | Prompt-Caching (Anthropic ephemeral) | Alle stabilen System-Blöcke mit `cache_control: ephemeral`. Cache-Hit-Rate >70 % ab Aussteller 2. Spart deutlich Input-Tokens. |
 | Confirmation-Widget fur destruktive Aktionen | delete_exhibitors, add_exhibitor, restart_pipeline geben `detail.confirmation_request` zuruck; das Chat-UI rendert ein Widget. Claude wartet auf Nutzer-Bestatigung, fuhrt nichts stillschweigend aus. |
+| Company Intel SSoT statt Borrow-Mechanismus | `company_short`/`company_deep` als kanonische 1:1-Tabellen auf Companies-Ebene. `exhibitor_short`/`exhibitor_deep` sind Write-Through-Mirrors mit `tokens_in=0`. Verhindert doppelte Token-Zahlung und macht Cross-Show-Intel trivial. |
+| Webhook-Infrastruktur (CRM-ready) | `webhook_endpoints`-Tabelle + `fireWebhooks()` in `lib/webhooks.ts`. HMAC-SHA256 Signatur. Events: `company_short.upserted`, `company_deep.upserted`. CRM-System noch nicht festgelegt — Infrastruktur ist vorbereitet. |
 | Companies-Modul cross-show | Global deduplizierte Firmen per `domain`- und `normalized_name`-Index. `companies_overview`-View aggregiert Metriken. |
 | Competitors retries=0 | Web-Search-Calls kosten ~0.15-0.30 EUR pro Lauf. Ein Retry wurde still verdoppeln. Stattdessen: sichtbares Failure + manueller Retry. |
 | 3-Spalten-Layout resizable | Links: Navigation + Kontext, Mitte: Content, Rechts: Orchestrator-Chat. Sidebars per localStorage kollabierbar + drag-resize. |
@@ -48,17 +51,17 @@ Sales-Intelligence-Tool für ISP Power Systems. Vertriebler gibt eine Defense-/I
 User gibt Messe-URL ein
   │
   ├── Phase 0: Discovery
-  │    Firecrawl scrapt Listing-URL → Claude wahlt Strategie + Engine
+  │    Scraper (fetchRawHtml + fetchSiteJina) → Claude wahlt Strategie + Engine
   │    Ergebnis: CrawlPlan in trade_shows.crawl_plan
   │
   ├── Phase 1: Listing
-  │    Engine: algolia_api | browserbase | firecrawl
+  │    Engine: algolia_api | browserbase | jina
   │    Aussteller werden inserted, companies dedupliziert
   │    Auto-trigger: Profile-Enrich (parallel, fur Aussteller mit profile_url)
   │    Ergebnis: exhibitors-Rows mit short_status=pending
   │
   ├── Phase 2: Profile-Enrich (parallel, auto)
-  │    Firecrawl scrapt exhibitor.profile_url (Messe-Detail-Seite)
+  │    Jina/fetch scrapt exhibitor.profile_url (Messe-Detail-Seite)
   │    promoted website-Column falls noch keine vorhanden
   │    profile_enrich_status: pending → running → done | failed | idle
   │
@@ -69,12 +72,17 @@ User gibt Messe-URL ein
   │
   ├── Phase 4: Short-Overview (User triggert via Orchestrator-Chat)
   │    Haiku 4.5 · concurrency 5 · throttle 30/min
-  │    Pro Aussteller: Firecrawl scrape → enrichShort → upsert exhibitor_short
+  │    Schritt 1: Pruft ob company_short fuer company_id existiert → Mirror + 0 Tokens
+  │    Schritt 2 (nur wenn kein company_short): Jina/fetch scrape → enrichShort
+  │    Schreibt company_short (SSoT) + exhibitor_short (Mirror, tokens=0)
+  │    Feuert Webhook company_short.upserted + revalidateTag(companyIntelTag)
   │    short_status: pending → running → done | failed | url_not_found
   │
-  └── Phase 5: Deep-Dive (User triggert per Aussteller via Orchestrator)
+  └── Phase 5: Deep-Dive (User triggert per Aussteller oder Company-Seite)
        Sonnet 4.6 (default) · concurrency 3
-       Pro Aussteller: Firecrawl scrape → enrichDeep (nutzt Short-Kontext) → upsert exhibitor_deep
+       Ladt company_short als Kontext (statt exhibitor_short)
+       Schreibt company_deep (SSoT) + exhibitor_deep (Mirror, tokens=0)
+       Feuert Webhook company_deep.upserted + revalidateTag(companyIntelTag)
        deep_status: pending → running → done | failed
 ```
 
@@ -114,6 +122,16 @@ pending → running → done | failed
 pending → running → done | failed
 ```
 
+**`companies.short_status`** (neu seit 0042)
+```
+pending → running → done | failed | url_not_found
+```
+
+**`companies.deep_status`** (neu seit 0042)
+```
+none → pending → running → done | failed
+```
+
 ### Listing-Engines (Phase 1)
 
 Claude wahlt im `crawl_plan.engine`:
@@ -121,8 +139,8 @@ Claude wahlt im `crawl_plan.engine`:
 | Engine | Wann | Wie |
 |---|---|---|
 | `algolia_api` | Algolia InstantSearch detected (`window.__ALGOLIA__`, `ais-`-Klassen, `algolia.net` im Network) | 1× Browserbase-Session lauscht auf Netzwerk-Requests, extrahiert appId + searchKey + indexName, dann `/1/indexes/<name>/browse` mit cursor-paginierung. ~30 s. |
-| `browserbase` | Generische SPA (React/Vue/Angular) mit Show-more-Button | Cloud-Playwright, isTrusted=true Klicks pro Letter. Robust fur alles, was Firecrawl synthetisch nicht kann. |
-| `firecrawl` | Statisch server-gerendertes HTML | V3-Codepfad: 1 Call pro Letter mit bis zu 80 click-Actions. Default-Fallback. |
+| `browserbase` | Generische SPA (React/Vue/Angular) mit Show-more-Button | Cloud-Playwright, isTrusted=true Klicks pro Letter. Robust fur alles, was JS-Rendering braucht. |
+| `jina` | Statisch server-gerendertes HTML | Jina Reader (`r.jina.ai`) — kostenlos, rendert JS, gibt Markdown zuruck. Default-Engine. `"firecrawl"` ist Legacy-Alias (gleicher Codepfad, bleibt gültig fur alte DB-Eintraege). |
 
 **Watch-Outs Listing:**
 - Network-Listener-Reihenfolge: `page.on("request", ...)` MUSS vor `page.goto()` registriert sein, sonst fehlen erste Algolia-Requests.
@@ -162,7 +180,7 @@ Der Orchestrator ist der zentrale Einstiegspunkt fur den Vertriebler. Er hat zwe
 
 | Tool | Funktion | Widget? |
 |---|---|---|
-| `run_discovery` | Firecrawl + Claude → CrawlPlan, ~30 s, inline im Chat | Nein |
+| `run_discovery` | Scraper (Jina/fetch) + Claude → CrawlPlan, ~30 s, inline im Chat | Nein |
 | `trigger_listing` | Inngest-Event `trade-show.listing-requested` | Nein |
 | `trigger_short_overview` | Inngest-Event `short-overview.bulk-requested` | Nein (Kostenschatzung vorher nennen) |
 | `trigger_deep_dive` | Inngest-Event `exhibitor.deep.requested` fur 1 Aussteller | Nein |
@@ -198,6 +216,7 @@ Editierbare Deep-Felder: `business_summary`, `decision_makers`, `recent_news`, `
 | `exhibitor-url-search` | `exhibitor.url-search.requested` | 5 | 20/min | 2 |
 | `exhibitor-short` | `exhibitor.short.requested` | 5 | 30/min | 4 |
 | `exhibitor-deep` | `exhibitor.deep.requested` | 3 | — | 2 |
+| `company-deep-dive` | `company.deep.requested` | 3 | — | 2 |
 | `profile-enrich-bulk` | `profile-enrich.bulk-requested` | — | — | 1 |
 | `exhibitor-profile-enrich` | `exhibitor.profile.enrich.requested` | 5 | 60/min | 2 |
 | `manual-enrich-chain` | `exhibitor.manual.enrich.requested` | — | — | 1 |
@@ -205,9 +224,13 @@ Editierbare Deep-Felder: `business_summary`, `decision_makers`, `recent_news`, `
 | `competitor-short-bulk` | `competitor.short.bulk-requested` | — | — | 1 |
 | `competitor-short` | `competitor.short.requested` | — | — | 2 |
 | `show-discovery` | `show.discovery.requested` | 1 per userId | 3/min per userId | 0 |
-| `show-result-firecrawl` | `show.result.firecrawl.requested` | 4 | 20/min | 1 |
+| `show-result-scrape` | `show.result.scrape.requested` | 4 | 20/min | 1 |
 
 **`onFailure`-Pattern:** Inngest Failure-Events kommen als `event.data.event.data` (doppelt verschachtelt). Nie zu `event.data.exhibitorId` vereinfachen.
+
+**exhibitor-short SSoT-Check:** Vor jedem enrichShort-Aufruf pruft die Function ob `company_short` fur die `company_id` bereits existiert. Wenn ja: Mirror-Write (tokens=0) + early return. Kein Claude/Scraper-Call.
+
+**Token-Doppelzahlung vermeiden:** Mirror-Writes in `exhibitor_short`/`exhibitor_deep` immer mit `tokens_in: 0, tokens_out: 0`. Tokens nur in `company_short`/`company_deep` zahlen. Sonst wurden `get_global_token_stats` + Cost-View doppelt zahlen.
 
 ---
 
@@ -215,9 +238,19 @@ Editierbare Deep-Felder: `business_summary`, `decision_makers`, `recent_news`, `
 
 ### Companies (`/companies`, `app/api/companies/`, `lib/companies.ts`)
 
-Cross-show-Deduplizierung aller Aussteller. `ensureCompany()` wird bei jedem Aussteller-Insert aufgerufen und matched per `domain` (normierter Hostname) oder `normalized_name`. `companies_overview`-View aggregiert `exhibitor_row_count`, `show_count`, `shows[]`, `best_match_confidence`, `best_priority`, `union_sectors`, `best_one_liner`.
+Cross-show-Deduplizierung aller Aussteller. `ensureCompany()` wird bei jedem Aussteller-Insert aufgerufen und matched per `domain` (normierter Hostname) oder `normalized_name`. `companies_overview`-View aggregiert `exhibitor_row_count`, `show_count`, `shows[]`, `best_match_confidence`, `best_priority`, `union_sectors`, `best_one_liner` — direkt aus `company_short`/`company_deep` (seit Migration 0043, kein exhibitor-Join mehr).
+
+**Company Intel SSoT (seit 0042):** `company_short` und `company_deep` sind 1:1-Tabellen auf Companies-Ebene (PK = `company_id`). Die `/companies/[id]`-Detailseite zeigt Short + Deep inline editierbar via `EditableCompanyIntelField`. Inline-Edit via PATCH `/api/companies/[id]/intel`. Short-Refresh via POST `/api/companies/[id]/refresh-short` (loscht `company_short`, setzt `companies.short_status=pending`, triggert neue Short-Analyse). Deep-Dive via POST `/api/companies/[id]/deep-dive` (feuert `company.deep.requested`).
+
+**Messen-Teilnahmen auf Company-Seite:** `CompanyDetailClient.tsx` zeigt pro Show: Name, Booth, Link zur Aussteller-Detailseite, Link zur Messe. Kein Intel in der Messen-Section — Intel gehort ins Short/Deep-Block.
+
+**Typen:** `CompanyShortRow`, `CompanyDeepRow` in `lib/companies.ts`. Cache via `getCachedCompanyIntel(companyId)` in `lib/show-cache.ts` mit Tag `company-intel-${companyId}`.
 
 Manuelle Firma hinzufugen (`POST /api/companies`) erstellt einen synthetischen "Manuelle Eintraege"-Show-Eintrag und triggert `exhibitor.manual.enrich.requested` (Short → Deep verkettet via `step.invoke`).
+
+### Webhooks (`app/api/webhooks/`, `lib/webhooks.ts`)
+
+CRM-Integration-Infrastruktur. Tabelle `webhook_endpoints` (id, user_id, url, secret, events[], active). `fireWebhooks(userId, event, data)` in `lib/webhooks.ts` — wird nach jedem company_short/company_deep Upsert aufgerufen. HMAC-SHA256 Signatur als `X-ISP-Signature`-Header wenn `secret` gesetzt. `Promise.allSettled` — wirft nie, loggt nur. Events: `company_short.upserted`, `company_deep.upserted`. CRUD via `GET/POST/DELETE /api/webhooks`.
 
 ### Competitors (`/competitors`, `app/api/competitors/`, `lib/competitors/`, `lib/competitor-short.ts`, `lib/competitor-orchestrator.ts`, `lib/competitor-log.ts`)
 
@@ -235,7 +268,7 @@ Auto-Discovery von ISP-Wettbewerbern via Claude + Web-Search (`discoverCompetito
 
 ### Show Discovery (`/shows/search`, `app/api/show-discovery/`)
 
-User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recherchiert Messen-Kandidaten, gibt strukturierte Liste mit Relevanz-Score (0-10), ISP-Sektor-Match, exhibitor_list_url, is_recurring zuruck. Danach Firecrawl-Validierung jeder URL (parallel, concurrency 4). Ergebnis-Actions: Kandidaten annehmen → `trade_shows` oder ablehnen.
+User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recherchiert Messen-Kandidaten, gibt strukturierte Liste mit Relevanz-Score (0-10), ISP-Sektor-Match, exhibitor_list_url, is_recurring zuruck. Danach Scraper-Validierung jeder URL via Jina/fetch (parallel, concurrency 4). Ergebnis-Actions: Kandidaten annehmen → `trade_shows` oder ablehnen.
 
 **Orchestrator-Chat (`lib/show-discovery-orchestrator.ts`, `POST /api/show-discovery/chat`):** Eigener Tool-Loop fuer Messen-Suche, scope=`show_discovery`. Threads in `chat_threads.show_discovery_run_focus` (uuid -> show_discovery_runs, seit 0035). Tool-Defs `SHOW_DISCOVERY_TOOL_DEFS`: start_discovery, cancel_discovery, resume_discovery, get_discovery_status, list_runs, list_results, add_result_to_shows, dismiss_results, update_discovery_settings. add/dismiss/system_prompt-Wechsel laufen immer ueber das Confirmation-Widget. State-Block via `loadShowDiscoveryState()` (aktiver Run, Counts, juengste Logs, Settings-Snapshot). Auf `/shows/search` bindet ein `<ChatScopeBinding scope={{ kind: 'show_discovery', focusRunId, focusName }}/>` die rechte Chat-Spalte automatisch an den aktiven Run.
 
@@ -249,16 +282,27 @@ User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recher
 `id, user_id, name, year, source_url, status, current_step, error_message, crawl_plan (jsonb), discovery_log (jsonb), expected_exhibitor_count, paused_phase, is_favorite, chat_context, browserbase_session_seconds, created_at, updated_at`
 
 **`exhibitors`**
-`id, trade_show_id, company_id (→companies), company_name, website, booth, listing_raw (jsonb), profile_url, profile_data (jsonb), profile_enrich_status, url_search_status, linkedin_url, short_status, deep_status, current_step, step_log (jsonb[])`
+`id, trade_show_id, company_id (→companies), company_name, website, booth, listing_raw (jsonb), profile_url, profile_data (jsonb), profile_enrich_status, url_search_status, linkedin_url, short_status, deep_status, current_step, step_log (jsonb[]), borrowed_short_from_exhibitor_id, pre_filter_status, pre_filter_reason`
 
-**`exhibitor_short`**
-`exhibitor_id, one_liner, priority_label (hoch|mittel|niedrig), match_confidence (0-10), isp_sector_match (text[]), reasoning_bullets, user_group, battery_need, drone_relevance, service_need (text[]), tokens_in, tokens_out`
+**`exhibitor_short`** (Write-Through-Mirror — nie als SSoT verwenden wenn company_id bekannt)
+`exhibitor_id, one_liner, priority_label (hoch|mittel|niedrig), match_confidence (0-10), isp_sector_match (text[]), reasoning_bullets, user_group, battery_need, drone_relevance, service_need (text[]), tokens_in, tokens_out` — Tokens sind 0 bei Mirror-Writes
 
-**`exhibitor_deep`**
-`exhibitor_id, business_summary, decision_makers, recent_news, technical_pain_points, opening_questions, competition_context, isp_lifecycle_match (text[]), isp_service_fit, full_reasoning, tokens_in, tokens_out`
+**`exhibitor_deep`** (Write-Through-Mirror)
+`exhibitor_id, business_summary, decision_makers, recent_news, technical_pain_points, opening_questions, competition_context, isp_lifecycle_match (text[]), isp_service_fit, full_reasoning, tokens_in, tokens_out` — Tokens sind 0 bei Mirror-Writes
 
 **`companies`**
-`id, user_id, display_name, website, domain (normalized), normalized_name, created_at`
+`id, user_id, display_name, website, domain (normalized), normalized_name, short_status (pending|running|done|failed|url_not_found), deep_status (none|pending|running|done|failed), created_at`
+
+**`company_short`** (SSoT, PK=company_id, seit 0042)
+`company_id, one_liner, priority_label (hoch|mittel|niedrig), match_confidence (0-100), isp_sector_match (text[]), reasoning_bullets, user_group, battery_need, drone_relevance, service_need (text[]), tokens_in, tokens_out, firecrawl_credits, created_at, updated_at`
+RLS: via Subquery auf `companies.user_id = auth.uid()`
+
+**`company_deep`** (SSoT, PK=company_id, seit 0042)
+`company_id, business_summary, decision_makers, recent_news, technical_pain_points, opening_questions, competition_context, isp_lifecycle_match (text[]), isp_service_fit, full_reasoning, tokens_in, tokens_out, firecrawl_credits, created_at, updated_at`
+RLS: gleiche Policy via companies
+
+**`webhook_endpoints`** (seit 0042)
+`id, user_id, url, secret, events (text[]), active (bool), created_at`
 
 **`competitors`**
 `id, user_id, display_name, normalized_name, domain, website, hq_country, status (suggested|active|archived|rejected), short_status (pending|running|done|failed), source_event, discovery_run_id, current_version_id, created_at, updated_at`
@@ -269,14 +313,14 @@ User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recher
 **`competitor_customer_links`**
 `id, competitor_id, version_id, company_id, customer_name_raw, evidence_url, match_method (domain|normname|trigram|manual), match_score, manual_confirmed, manual_rejected`
 
-**`competitor_show_links`** — `id, user_id, competitor_id, trade_show_id, created_at` — Many-to-many zwischen Konkurrenten und Messen (z.B. wenn ein Konkurrent als Aussteller auftritt).
+**`competitor_show_links`** — `id, user_id, competitor_id, trade_show_id, created_at` — Many-to-many zwischen Konkurrenten und Messen.
 
 **`competitor_discovery_runs`**
 `id, user_id, status, current_phase, candidates_total, candidates_kept, model, tokens_in, tokens_out, web_search_uses, web_search_cost_usd, error_message, created_at, started_at, finished_at`
-(Hinweis: `started_at` wurde in 0028 nachgetragen — vorher nur `created_at`. NOT NULL DEFAULT now(), Bestand via created_at backgefuellt.)
+(`started_at` in 0028 nachgetragen, NOT NULL DEFAULT now(), Bestand via created_at backgefuellt.)
 
 **`competitor_discovery_log`**
-`id, user_id, run_id (nullable seit 0026), competitor_id (seit 0026, nullable), level (info|warn|error), phase, message, meta (jsonb), created_at` — kombiniert Run-Events (run_id-scoped) und per-Konkurrent-Events (competitor_id-scoped).
+`id, user_id, run_id (nullable), competitor_id (nullable), level (info|warn|error), phase, message, meta (jsonb), created_at`
 
 **`show_discovery_runs`**
 `id, user_id, user_prompt, status, current_phase, candidates_total, candidates_validated, candidates_added, model, tokens_in, tokens_out, web_search_uses, firecrawl_calls, error_message, started_at, finished_at`
@@ -285,7 +329,7 @@ User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recher
 `id, run_id, user_id, name, website, location_city, location_country, dates_raw, focus_description, target_audience, isp_sector_match (text[]), relevance_score (0-10), relevance_reasoning, evidence_urls (text[]), is_recurring, recurrence_note, exhibitor_list_url, exhibitor_list_available, firecrawl_status, firecrawl_confirmed_url, firecrawl_extracted (jsonb), dismissed, added_trade_show_id`
 
 **`chat_threads`**
-`id, trade_show_id (nullable), user_id, title, exhibitor_focus, company_focus, competitor_focus (uuid → competitors, seit 0025), last_message_at, created_at`
+`id, trade_show_id (nullable), user_id, title, exhibitor_focus, company_focus, competitor_focus (uuid → competitors), last_message_at, created_at`
 
 **`chat_messages`**
 `id, trade_show_id, user_id, thread_id, role, content, tokens_in, tokens_out, model, with_deep_context, with_web_search, pipeline_action (jsonb), created_at`
@@ -299,10 +343,10 @@ User gibt natürlichsprachliche Suchanfrage ein. Claude Opus + Web-Search recher
 
 ### Views & RPCs
 
-- `companies_overview` — security_invoker, aggregiert Metriken per company
+- `companies_overview` — security_invoker, LEFT JOIN auf `company_short`/`company_deep` (seit 0043, kein exhibitor_short-Join mehr). Spalten: `best_one_liner`, `best_priority`, `best_match_confidence`, `union_sectors`, `business_summary`, `exhibitor_row_count`, `show_count`, `shows` (jsonb[]), `short_status`, `deep_status`.
 - `competitors_overview` — latest_version + counts per competitor
 - `get_token_stats(p_trade_show_id uuid)` — Token-Aggregate per Short/Deep/Chat fur eine Messe
-- `get_global_token_stats(p_user_id uuid)` — Globale Token-Aggregate + browserbase_seconds
+- `get_global_token_stats(p_user_id uuid)` — Globale Token-Aggregate + browserbase_seconds. Liest von exhibitor_short/deep — Mirror-Writes haben tokens=0, keine Doppelzahlung.
 
 ### Wichtige Indexes
 
@@ -455,12 +499,17 @@ niedrig: border 1px rgba(10,10,10,0.10), text near-black(40%)
 }
 ```
 
-**EditableIntelField** (Aussteller-Detail-Seite):
+**EditableIntelField** (Aussteller-Detail-Seite, `app/shows/[id]/exhibitors/[exId]/EditableIntelField.tsx`):
 - Hover: Stift-Icon erscheint (opacity 0 → 1, transition 120ms)
 - Click: Input oder Textarea offnet sich inline
 - Save via PATCH `/api/exhibitors/[id]/fields` mit `{ table, field, value }`
 - States: normal | editing | saving ("speichert...") | error
 - Kein Modal, kein Drawer — alles inline, kein Layout-Shift
+
+**EditableCompanyIntelField** (Company-Detail-Seite, `app/companies/[id]/EditableCompanyIntelField.tsx`):
+- Gleiches Pattern wie EditableIntelField
+- Save via PATCH `/api/companies/[id]/intel` mit `{ table: "short"|"deep", field, value }`
+- Enthalt auch `EditableCompanySelectField` fur Dropdown-Felder
 
 **ExhibitorList** (virtualisiert mit `react-window`):
 - FixedSizeList, row height 120px desktop / 160px mobile
@@ -482,9 +531,10 @@ niedrig: border 1px rgba(10,10,10,0.10), text near-black(40%)
 |---|---|---|
 | `/` | Dashboard. | 4 Stat-Cards, 3 Quick-Links, letzte 8 Shows, Token-Stats |
 | `/companies` | Unternehmen. | Deduplizierte Firmen-Liste, Filter, Stat-Bar |
+| `/companies/[id]` | Firmen-Name | Short-Block (editierbar) + Deep-Block (editierbar) + Messen-Teilnahmen |
 | `/shows` | Messen. | 2 Sections: manuell erfasst (Grid) + entdeckt (Liste) |
 | `/shows/[id]` | Show-Name | Toolbar + 5 View-Tabs: aussteller, prozess, log, kosten, progress |
-| `/shows/[id]/exhibitors/[exId]` | Firmen-Name | Stammdaten + Short-Block + Deep-Block, EditableIntelFields |
+| `/shows/[id]/exhibitors/[exId]` | Firmen-Name | Stammdaten + Short-Block (mit "intel gilt unternehmensweit"-Banner) + Deep-Block |
 | `/competitors` | Konkurrenten. | Competitor-Liste mit Status-Tabs |
 | `/shows/search` | Messen suchen. | Show-Discovery-Dialog + Ergebnis-Liste |
 | `/costs` | Kosten. | Globale API-Kosten: Kategorie-Tabelle, pro Messe, Konkurrenzanalysen, Messen-Suche. RPC: `get_full_cost_stats` |
@@ -634,10 +684,30 @@ Gold-Punkt am Wert = einziger Gold-Akzent der Karte. Kein zweites gold-Element g
 | `POST` | `/api/trade-shows/[id]/resume` | Resume pipeline |
 | `POST` | `/api/trade-shows/[id]/re-listing` | Re-fetch Aussteller-Liste |
 | `DELETE` | `/api/exhibitors/[id]` | Delete exhibitor (cascades) |
-| `PATCH` | `/api/exhibitors/[id]/fields` | Edit Short/Deep-Felder inline |
-| `POST` | `/api/exhibitors/[id]/deep-dive` | Trigger Deep-Dive |
+| `PATCH` | `/api/exhibitors/[id]/fields` | Edit Short/Deep-Felder inline (show-spezifisch) |
+| `POST` | `/api/exhibitors/[id]/deep-dive` | Trigger Deep-Dive (setzt auch companies.deep_status) |
+| `POST` | `/api/exhibitors/[id]/refresh-short` | Reset Short (loscht auch company_short + setzt companies.short_status=pending) |
 | `POST` | `/api/shows/[id]/exhibitors` | Add exhibitor manually |
 | `POST` | `/api/shows/[id]/exhibitors/bulk-delete` | Bulk-delete exhibitors |
+
+### Companies
+
+| Methode | Pfad | Funktion |
+|---|---|---|
+| `GET/POST` | `/api/companies` | List / Hand-add company |
+| `GET` | `/api/companies/export` | Excel-Export (ExcelJS), direkt aus company_short/company_deep |
+| `GET/PATCH` | `/api/companies/[id]/intel` | Company Short + Deep lesen / Felder inline editieren |
+| `POST` | `/api/companies/[id]/refresh-short` | company_short loschen + short_status=pending + Short neu triggern |
+| `POST` | `/api/companies/[id]/deep-dive` | company.deep.requested feuern + deep_status=pending |
+| `POST` | `/api/companies/chat` | Global companies chat |
+
+### Webhooks
+
+| Methode | Pfad | Funktion |
+|---|---|---|
+| `GET` | `/api/webhooks` | List alle Endpoints des Users |
+| `POST` | `/api/webhooks` | Neuen Endpoint anlegen (url, secret?, events?) |
+| `DELETE` | `/api/webhooks?id=...` | Endpoint loschen |
 
 ### Chat / Orchestrator
 
@@ -649,18 +719,15 @@ Gold-Punkt am Wert = einziger Gold-Akzent der Karte. Kein zweites gold-Element g
 | `DELETE` | `/api/shows/[id]/chat?thread=[id]` | Delete one thread |
 | `DELETE` | `/api/shows/[id]/chat` | Delete all threads |
 
-### Export, Companies, Competitors, Show Discovery
+### Competitors, Show Discovery, Settings
 
 | Methode | Pfad | Funktion |
 |---|---|---|
-| `GET` | `/api/shows/[id]/export` | Excel-Export (ExcelJS), farbcodiert nach Priority |
-| `GET/POST` | `/api/companies` | List / Hand-add company |
-| `POST` | `/api/companies/chat` | Global companies chat |
 | `GET` | `/api/competitors` | List competitors_overview |
 | `POST` | `/api/competitors/discovery` | Trigger auto-discovery |
 | `POST` | `/api/competitors/[id]/curate` | Curator-Aktionen (Status, Short-Rescan, manuelle Links) |
 | `POST` | `/api/competitors/chat` | SSE-Stream, Competitor-Orchestrator-Tool-Loop |
-| `GET` | `/api/competitors/log` | Per-User Event-Feed (Run- + Competitor-Events) |
+| `GET` | `/api/competitors/log` | Per-User Event-Feed |
 | `POST` | `/api/competitors/bulk-delete` | Bulk-delete Konkurrenten |
 | `POST/GET` | `/api/show-discovery` | Trigger Messen-Suche / List runs |
 | `GET` | `/api/show-discovery/[runId]/results` | List candidates |
@@ -683,11 +750,10 @@ Login per Magic-Link an `ALLOWED_EMAIL`. Alle anderen Adressen werden in `app/au
 
 Auto-Refresh: Polling alle 5 s, solange `trade_shows.status` IN (queued, crawling) oder Aussteller mit pending/running-Status vorhanden.
 
-Schema-Änderungen: Neue Migration `0030_*.sql` anlegen, idempotent schreiben (`IF NOT EXISTS`). Nie bestehende Migrationen editieren.
+Schema-Änderungen: Neue Migration `0044_*.sql` anlegen, idempotent schreiben (`IF NOT EXISTS`). Nie bestehende Migrationen editieren. Views droppen mit `DROP VIEW IF EXISTS` vor `CREATE VIEW` wenn Spalten geandert werden (`CREATE OR REPLACE` erlaubt keine Spalten-Umbenennungen).
 
 Kosten-Check nach Echt-Lauf:
 - Anthropic-Console: Cache-Hit-Rate >70 % ab Aussteller 2 erwarten
-- Firecrawl-Dashboard: Credits
 - Browserbase-Dashboard: Session-Minuten
 
 ---
@@ -695,14 +761,17 @@ Kosten-Check nach Echt-Lauf:
 ## Bekannte Schwachstellen / Watch-Outs
 
 - **Anthropic Rate-Limit (Haiku 4.5):** 50k input-tokens/min auf Free-Tier. Throttle 30/min ist konservativ; bei Pro-Tier auf 100/min erhöhen. 1500-Aussteller-Messe = ~50 Min.
-- **Firecrawl Show-more-Cap 80** gilt fur den Worst-Case-Letter. Pricing per Call, nicht per Click.
-- **Listing-Pages mit JS-Lazy-Load:** Firecrawl `waitFor` 3000 ms in Discovery, 800 ms zwischen Show-more-Clicks. Bei langsamen Sites in `lib/strategies/shared.ts` erhohen.
+- **Show-more-Cap 80** gilt fur den Worst-Case-Letter (Jina-Pfad, 1 Pass pro Letter, kein click-Replay).
+- **Listing-Pages mit JS-Lazy-Load:** fetchSiteJina `capChars=20_000` in shared.ts. Bei SPAs mit clientseitigem Rendering: Engine auf `browserbase` umstellen.
 - **`onFailure` doppelt verschachtelt:** Inngest Failure-Events kommen als `event.data.event.data`. Nie zu `event.data.exhibitorId` vereinfachen.
 - **Web-Search-Cost im Chat:** Nur Token-basierte Chat-Kosten getrackt. Anthropic Native Web-Search (~$0.01/Search) fehlt in Cost-View.
 - **Profile-Enrich promoted website:** Wenn `scrape.external_website` gefunden und `exhibitor.website` leer, wird `website`-Column uberschrieben. URL-Search pruft danach, ob `website` inzwischen gesetzt ist (guard im exhibitor-url-search function).
 - **Confirmation-Widget darf nicht umgangen werden:** `delete_exhibitors` und `add_exhibitor` geben erst `detail.confirmation_request` zuruck. Claude weist auf Widget hin, fuhrt aber nichts selbst aus.
 - **Competitors retries=0:** Bewusst. Web-Search-Costs bei Retry verdoppeln sich. Bei Failure: UI-sichtbarer Fehler, User triggert manuell.
 - **Realtime nicht aktiv:** Supabase Realtime Publication ist im Schema, UI nutzt polling. Wechsel auf Realtime wenn Latenz stört.
+- **Mirror-Writes tokens=0 zwingend:** exhibitor_short/exhibitor_deep Mirror-Writes MUSSEN `tokens_in=0, tokens_out=0` haben. Sonst doppelt `get_global_token_stats` alle Tokens. Gilt fur check-existing-short early-return UND fur den normalen upsert-short-Pfad.
+- **CREATE OR REPLACE VIEW mit Spalten-Änderungen:** Schlagt fehl mit "cannot change name of view column". Stattdessen `DROP VIEW IF EXISTS` + `CREATE VIEW`. Gilt auch fur Security-Invoker-Views.
+- **`getSettings` braucht userId:** Signatur ist `getSettings(supabase, userId)`. Nicht mit nur einem Argument aufrufen.
 
 ---
 
@@ -718,11 +787,12 @@ Kosten-Check nach Echt-Lauf:
 
 ## Tooling-Hinweise
 
-- **Vor Library-Updates** (Anthropic SDK, Inngest, Supabase, Firecrawl, Next.js, Browserbase): immer Context7 querchecken — alle sind aktiv weiterentwickelt.
+- **Vor Library-Updates** (Anthropic SDK, Inngest, Supabase, Next.js, Browserbase): immer Context7 querchecken — alle sind aktiv weiterentwickelt.
 - **Brand-Checkliste vor neuen UI-Komponenten:** ein Gold-Element, Helvetica, keine Rundung, keine Em-Dashes, keine gefullten Buttons.
-- **Neue Inngest-Function:** in `lib/inngest/functions.ts` anlegen + in `functions`-Array am Ende eintragen. Event-Name-Konvention: `<domain>.<action>.<modifier>` (z.B. `exhibitor.short.requested`).
-- **Neue API-Route mit Supabase:** `createClient()` (User-scoped, RLS) fur User-Routes. `createServiceRoleClient()` (Admin, bypasses RLS) nur in Inngest-Functions.
-- **Neue Migrationen:** Nummerierung streng aufsteigend, idempotent schreiben.
+- **Neue Inngest-Function:** in `lib/inngest/functions.ts` anlegen + in `functions`-Array am Ende eintragen + Event-Typ in `lib/inngest/client.ts` erganzen. Event-Name-Konvention: `<domain>.<action>.<modifier>` (z.B. `exhibitor.short.requested`).
+- **Neue API-Route mit Supabase:** `createClient()` (User-scoped, RLS) fur User-Routes. `createServiceRoleClient()` (Admin, bypasses RLS) nur in Inngest-Functions und internen Utility-Calls.
+- **Neue Migrationen:** Nummerierung streng aufsteigend, idempotent schreiben. Nächste: `0044_*.sql`.
+- **Company Intel editieren:** immer PATCH `/api/companies/[id]/intel`, nie direkt `exhibitor_short`/`exhibitor_deep` ansteuern wenn es um Company-Level-Intel geht.
 
 ---
 
@@ -767,4 +837,3 @@ Alle anderen Spalten werden ignoriert. Zeilen ohne Name werden übersprungen.
 | Datei | Messe | Aussteller | Quelle | Datum |
 |---|---|---|---|---|
 | `euronaval_2024_aussteller.csv` | Euronaval 2024 (Le Bourget du Lac) | 429 | euronaval.com/euronaval_exhibitors/ URL-Map | 2026-05-18 |
-- **Neue Migrationen:** Nummerierung streng aufsteigend, idempotent schreiben.

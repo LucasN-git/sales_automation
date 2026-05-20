@@ -20,7 +20,7 @@ ISP entwickelt anwendungsspezifische Batterie- und Antriebssysteme fuer Defense,
 ## Prozess-Ablauf
 
 **Neuen Lauf starten:**
-start_discovery(user_prompt) → Inngest-Job laeuft (3-5 Min, Claude Opus + Web-Search) → Kandidaten erscheinen → Firecrawl validiert jede URL → done. Phasen: preparing → preparing_prompt → claude_research → persisting → firecrawl_validation → done.
+start_discovery(user_prompt) → Inngest-Job laeuft (3-5 Min, Claude Opus + Web-Search) → Kandidaten erscheinen → Scraper validiert jede URL → done. Phasen: preparing → preparing_prompt → claude_research → persisting → scrape_validation → done.
 
 **Status pollen:**
 get_discovery_status() → Phase, Counts, juengste Logs.

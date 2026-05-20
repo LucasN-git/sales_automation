@@ -22,7 +22,8 @@ type Item = {
 
 const ITEMS: Item[] = [
   { href: "/", label: "Dashboard", Icon: DashboardIcon },
-  { href: "/companies", label: "Unternehmen", matchPrefix: "/companies", Icon: BuildingIcon },
+  { href: "/companies", label: "Unternehmen", matchPrefix: "/companies", excludePrefixes: ["/companies/search"], Icon: BuildingIcon },
+  { href: "/companies/search", label: "Kunden suchen", matchPrefix: "/companies/search", indent: true, Icon: SearchIcon },
   { href: "/shows", label: "Messen", matchPrefix: "/shows", excludePrefixes: ["/shows/search"], Icon: BriefcaseIcon },
   { href: "/shows/search", label: "Messen suchen", matchPrefix: "/shows/search", indent: true, Icon: SearchIcon },
   { href: "/competitors", label: "Konkurrenten", matchPrefix: "/competitors", Icon: CompetitorsIcon },

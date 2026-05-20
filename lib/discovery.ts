@@ -1,14 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import FirecrawlApp from "@mendable/firecrawl-js";
+import { fetchRawHtml, fetchSiteJina } from "./scraper";
 import { CrawlPlanSchema, type CrawlPlan } from "./crawl-plan";
-
-let _firecrawl: FirecrawlApp | null = null;
-function firecrawl() {
-  if (!_firecrawl) {
-    _firecrawl = new FirecrawlApp({ apiKey: process.env.FIRECRAWL_API_KEY! });
-  }
-  return _firecrawl;
-}
 
 let _client: Anthropic | null = null;
 function client() {
@@ -31,10 +23,10 @@ ENGINE SELECTION (required field "engine"). Scan top to bottom — first match w
 - "expofp_api" — pick if the listing subdomain matches \`*.expofp.com\` (but NOT www/app/developer/help.expofp.com), or the page embeds \`packages/main/expofp.js\` plus a \`window.__fpDataVersion\` reference. ExpoFP hosts interactive floor plans; the unauthenticated \`{origin}/data/data.json\` blob carries every exhibitor with name, website, address, phone, plus booths. When you pick this, set strategy="single_page" and fill the \`expofp\` hint with {event_id = first hostname label}.
 
 - "algolia_api" — pick if you see Algolia InstantSearch hints anywhere in the HTML: \`window.__ALGOLIA__\`, \`data-app-id\`, \`aa-Input\`, classes starting with \`ais-\`, calls to \`algolia.net\`. This is fastest and cheapest (~0.10 €/show) because we hit Algolia's REST API directly.
-- "browserbase" — pick for any other React/Vue/Angular SPA where listings render client-side or "Show more" buttons need real user clicks. Costs 1–2.50 €/show but works on every modern SPA reliably. PREFER this over firecrawl whenever the page looks dynamic.
-- "firecrawl" — pick ONLY for static server-rendered HTML where a single Firecrawl scrape returns the full list. Cheapest if it works, but useless on SPAs.
+- "browserbase" — pick for any other React/Vue/Angular SPA where listings render client-side or "Show more" buttons need real user clicks. Costs 1–2.50 €/show but works on every modern SPA reliably. PREFER this over jina whenever the page looks dynamic.
+- "jina" — pick for static server-rendered HTML where a single page scrape returns the full list. Uses Jina Reader (free). Useless on SPAs.
 
-When in doubt between browserbase and firecrawl: prefer browserbase. Completeness > cost.
+When in doubt between browserbase and jina: prefer browserbase. Completeness > cost.
 
 STRATEGIES (required field "strategy"):
 
@@ -142,7 +134,7 @@ const CRAWL_PLAN_INPUT_SCHEMA = {
     engine: {
       type: "string",
       enum: [
-        "firecrawl",
+        "jina",
         "browserbase",
         "algolia_api",
         "dimedis_api",
@@ -150,7 +142,7 @@ const CRAWL_PLAN_INPUT_SCHEMA = {
         "expofp_api",
       ],
       description:
-        "Listing engine. Platform-specific REST engines (dimedis_api, mapyourshow_api, expofp_api) are fastest and require strategy='single_page'. algolia_api is cheap when Algolia is detected. browserbase for generic React/SPA pages needing real clicks (most robust). firecrawl only for static HTML.",
+        "Listing engine. Platform-specific REST engines (dimedis_api, mapyourshow_api, expofp_api) are fastest and require strategy='single_page'. algolia_api is cheap when Algolia is detected. browserbase for generic React/SPA pages needing real clicks (most robust). jina for static server-rendered HTML (free).",
     },
     algolia: {
       type: ["object", "null"],
@@ -324,18 +316,16 @@ async function probeDimedisApi(
  * Uses Firecrawl to fetch HTML+markdown, then Claude (via tool_use) to pick a strategy.
  */
 export async function discoverSiteStrategy(url: string): Promise<DiscoveryResult> {
-  const result: any = await firecrawl().scrapeUrl(url, {
-    formats: ["html", "markdown"],
-    onlyMainContent: false,
-    waitFor: 3500,
-  });
+  const [html, markdown] = await Promise.all([
+    fetchRawHtml(url),
+    fetchSiteJina(url, 10_000),
+  ]);
 
-  if (!result?.success) {
-    throw new Error(`Discovery scrape failed: ${result?.error ?? "unknown"}`);
+  if (!html && !markdown) {
+    throw new Error("Discovery fetch failed: no content retrieved from URL");
   }
 
-  const html: string = (result.html ?? result.data?.html ?? "").slice(0, 30_000);
-  const markdown: string = (result.markdown ?? result.data?.markdown ?? "").slice(0, 10_000);
+  const htmlTruncated = html.slice(0, 30_000);
 
   // ── Pre-Claude deterministic platform checks ────────────────────────────────
   // Faster and more reliable than HTML analysis for known platforms.
@@ -416,7 +406,7 @@ export async function discoverSiteStrategy(url: string): Promise<DiscoveryResult
     ? `\n\n⚠ PRE-SCAN RESULT: ${algoliaSignals.summary} You MUST pick engine="algolia_api".${algoliaSignals.app_id_hint ? ` Set algolia.app_id_hint="${algoliaSignals.app_id_hint}".` : ""}${algoliaSignals.index_hint ? ` Set algolia.index_hint="${algoliaSignals.index_hint}".` : ""}`
     : "";
 
-  const userContent = `User-supplied URL:\n${url}\n\n--- HTML (truncated) ---\n${html}\n\n--- Markdown (truncated) ---\n${markdown}${algoliaNote}\n\nCall submit_crawl_plan with the chosen strategy.`;
+  const userContent = `User-supplied URL:\n${url}\n\n--- HTML (truncated) ---\n${htmlTruncated}\n\n--- Markdown (truncated) ---\n${markdown}${algoliaNote}\n\nCall submit_crawl_plan with the chosen strategy.`;
 
   const response = await client().messages.create({
     model: MODEL,

@@ -57,7 +57,7 @@ type Events = {
       userPrompt: string;
     };
   };
-  "show.result.firecrawl.requested": {
+  "show.result.scrape.requested": {
     data: {
       resultId: string;
       runId: string;
@@ -86,6 +86,21 @@ type Events = {
   };
   "exhibitor.map.listing.requested": {
     data: { tradeShowId: string };
+  };
+  "company.deep.requested": {
+    data: { companyId: string; userId: string };
+  };
+  "company.search.requested": {
+    data: { userId: string; runId: string; userPrompt: string };
+  };
+  "company.search.result.enrich.requested": {
+    data: {
+      resultId: string;
+      runId: string;
+      userId: string;
+      companyName: string;
+      website: string | null;
+    };
   };
 };
 
